@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0056D2;
+  --color-primary-light: #E7F0FF;
+  --color-accent: #FF4E00;
+  --color-background: #F4F7FA;
+  --color-surface: #FFFFFF;
+  --color-text-main: #1A1C1E;
+  --color-text-muted: #6C757D;
+  --color-border-color: #E0E4E9;
+  --color-success: #28a745;
+  --color-danger: #dc3545;
+  --color-warning: #ffc107;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-main);
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
