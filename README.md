@@ -1,18 +1,18 @@
-# WebApp de SolicitaÁ„o de Camisas (React + Google Apps Script)
+Ôªø# WebApp de Solicita√ß√£o de Camisas (React + Google Apps Script)
 
-AplicaÁ„o frontend em React/Vite integrada ao backend em Google Apps Script para gravar solicitaÁıes na planilha oficial.
+Aplica√ß√£o frontend em React/Vite integrada ao backend em Google Apps Script para gravar solicita√ß√µes na planilha oficial.
 
-## PrÈ-requisitos
+## Pr√©-requisitos
 
 - Node.js 18+
 - Projeto publicado no Google Apps Script como Web App
 
-## Vari·veis de ambiente
+## Vari√°veis de ambiente
 
 Crie um `.env.local` com base no `.env.example`.
 
 - `VITE_GAS_WEB_APP_URL`: URL `/exec` do Web App do Apps Script
-- `VITE_USE_MOCK_API`: `true` para validar UI com mock, `false` para integraÁ„o real
+- `VITE_USE_MOCK_API`: `true` para validar UI com mock, `false` para integra√ß√£o real
 
 ## Rodar local
 
@@ -20,20 +20,25 @@ Crie um `.env.local` com base no `.env.example`.
 2. Ajustar `.env.local`
 3. `npm run dev`
 
+## Rotas de acesso
+
+- Formulario: `/`
+- Dashboard: `/dashboard` (ou `/#/dashboard` como fallback sem configuracao de rewrite)
+
 ## Build
 
 - `npm run build`
 
 ## Deploy na Vercel
 
-Configure as mesmas vari·veis no projeto da Vercel:
+Configure as mesmas vari√°veis no projeto da Vercel:
 
 - `VITE_GAS_WEB_APP_URL`
 - `VITE_USE_MOCK_API` (normalmente `false`)
 
 ## Google Apps Script
 
-O arquivo pronto para colar no Apps Script est· em:
+O arquivo pronto para colar no Apps Script est√° em:
 
 - `google-apps-script/code.gs`
 
