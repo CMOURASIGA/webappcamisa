@@ -47,6 +47,7 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   const load = async () => {
     setLoading(true);
@@ -96,7 +97,11 @@ export default function Dashboard() {
   return (
     <div className="max-w-[1280px] mx-auto p-4 md:p-6 lg:p-10 pb-10">
       <div className="bg-primary rounded-t-[16px] p-7 text-center shadow-[0_4px_20px_rgba(0,0,0,0.05)] border-b border-white/10">
-        <div className="text-white text-3xl font-black mb-2 tracking-widest uppercase">EAC</div>
+        <img
+          src={data.logoUrl || LOGO_URL}
+          alt="Logo EAC"
+          className="w-20 h-20 object-cover rounded-full border-2 border-white/30 mx-auto mb-2"
+        />
         <div className="text-white/80 text-sm">Dashboard de Estoque</div>
       </div>
 
