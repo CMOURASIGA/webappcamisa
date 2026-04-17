@@ -1,20 +1,40 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# WebApp de Solicitação de Camisas (React + Google Apps Script)
 
-# Run and deploy your AI Studio app
+Aplicação frontend em React/Vite integrada ao backend em Google Apps Script para gravar solicitações na planilha oficial.
 
-This contains everything you need to run your app locally.
+## Pré-requisitos
 
-View your app in AI Studio: https://ai.studio/apps/0c4fceb1-857f-4ec0-bef1-cfa74c2aeca7
+- Node.js 18+
+- Projeto publicado no Google Apps Script como Web App
 
-## Run Locally
+## Variáveis de ambiente
 
-**Prerequisites:**  Node.js
+Crie um `.env.local` com base no `.env.example`.
 
+- `VITE_GAS_WEB_APP_URL`: URL `/exec` do Web App do Apps Script
+- `VITE_USE_MOCK_API`: `true` para validar UI com mock, `false` para integração real
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Rodar local
+
+1. `npm install`
+2. Ajustar `.env.local`
+3. `npm run dev`
+
+## Build
+
+- `npm run build`
+
+## Deploy na Vercel
+
+Configure as mesmas variáveis no projeto da Vercel:
+
+- `VITE_GAS_WEB_APP_URL`
+- `VITE_USE_MOCK_API` (normalmente `false`)
+
+## Google Apps Script
+
+O arquivo pronto para colar no Apps Script está em:
+
+- `google-apps-script/code.gs`
+
+Depois de publicar, copie a URL `/exec` e use em `VITE_GAS_WEB_APP_URL`.
