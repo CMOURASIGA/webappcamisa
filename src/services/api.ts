@@ -68,3 +68,7 @@ export async function submitOrder(payload: SubmitOrderPayload): Promise<SubmitOr
 export async function fetchDashboardData(): Promise<DashboardData> {
   return callGas<DashboardData>('getDashboardData');
 }
+
+export async function markOrderDelivered(requestId: string): Promise<{ success: boolean; requestId: string; deliveredAt: string }> {
+  return callGas<{ success: boolean; requestId: string; deliveredAt: string }>('markOrderDelivered', { requestId });
+}

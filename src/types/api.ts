@@ -58,6 +58,28 @@ export interface DashboardRow {
   reposicoes: number;
 }
 
+export interface DashboardOrderItem {
+  tamanho: string;
+  cor: string;
+  quantidadeSolicitada: number;
+  quantidadeAtendida: number;
+  statusItem: string;
+  alternativaSugerida: string;
+}
+
+export interface DashboardOrder {
+  requestId: string;
+  dataHora: string;
+  nomeCompleto: string;
+  email: string;
+  equipe: string;
+  resumoPedido: string;
+  statusGeral: string;
+  statusEntrega: string;
+  entregueEm: string;
+  items: DashboardOrderItem[];
+}
+
 export interface DashboardData {
   logoUrl: string;
   instagramUrl: string;
@@ -73,4 +95,5 @@ export interface DashboardData {
     totalReposicao: number;
   };
   tabelaGerencial: DashboardRow[];
+  pedidos: DashboardOrder[];
 }

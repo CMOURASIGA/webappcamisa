@@ -44,7 +44,7 @@ function doGet(e) {
     ok: true,
     mode: 'api',
     message: 'Web App ativo. Use POST com { action, payload }.',
-    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'setupWebappEnvironment']
+    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'markOrderDelivered', 'setupWebappEnvironment']
   });
 }
 
@@ -71,6 +71,8 @@ function handleApiAction_(action, payload) {
         return jsonResponse_({ ok: true, data: getBootstrapData() });
       case 'getDashboardData':
         return jsonResponse_({ ok: true, data: getDashboardData() });
+      case 'markOrderDelivered':
+        return jsonResponse_({ ok: true, data: markOrderDelivered(payload) });
       case 'setupWebappEnvironment':
         return jsonResponse_({ ok: true, data: setupWebappEnvironment() });
       case 'submitOrder':
@@ -194,12 +196,16 @@ function submitOrder(payload) {
 }
 
 function getDashboardData() {
+  ensureMainResponseSheet_();
+  ensureItemsSheet_();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
   const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
+  const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
 
   if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" não encontrada.`);
   if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" não encontrada.`);
+  if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" não encontrada.`);
 
   const stockData = stockSheet.getDataRange().getValues();
   const stockHeaders = stockData[0];
@@ -251,6 +257,7 @@ function getDashboardData() {
   const idxItemQtdSolicitada = itemHeaders.indexOf('Quantidade Solicitada');
   const idxItemQtdAtendida = itemHeaders.indexOf('Quantidade Atendida');
   const idxItemStatus = itemHeaders.indexOf('Status Item');
+  const idxItemAlternativa = itemHeaders.indexOf('Alternativa Sugerida');
 
   let totalReservados = 0;
   let totalAlternativa = 0;
@@ -316,6 +323,70 @@ function getDashboardData() {
       };
     });
 
+  const responseData = responseSheet.getDataRange().getValues();
+  const responseHeaders = responseData[0] || [];
+
+  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxDataHora = findHeaderIndex_(responseHeaders, ['Carimbo de data/hora', 'Data/Hora']);
+  const idxEmail = findHeaderIndex_(responseHeaders, ['Endereco de e-mail', 'Endereço de e-mail']);
+  const idxNomeCompleto = findHeaderIndex_(responseHeaders, ['Nome Completo']);
+  const idxEquipe = findHeaderIndex_(responseHeaders, ['Equipe']);
+  const idxResumoPedido = findHeaderIndex_(responseHeaders, ['Resumo Pedido']);
+  const idxStatusGeral = findHeaderIndex_(responseHeaders, ['Status Geral', 'Status Estoque']);
+  const idxStatusEntrega = findHeaderIndex_(responseHeaders, ['Status Entrega']);
+  const idxDataEntrega = findHeaderIndex_(responseHeaders, ['Data/Hora Entrega']);
+
+  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemTamanho = findHeaderIndex_(itemHeaders, ['Tamanho']);
+  const idxItemCor = findHeaderIndex_(itemHeaders, ['Cor']);
+
+  const itemsByRequestId = {};
+  itemsData.slice(1).forEach(row => {
+    const requestId = idxItemRequestId >= 0 ? String(row[idxItemRequestId] || '').trim() : '';
+    if (!requestId) return;
+
+    if (!itemsByRequestId[requestId]) itemsByRequestId[requestId] = [];
+    itemsByRequestId[requestId].push({
+      tamanho: idxItemTamanho >= 0 ? String(row[idxItemTamanho] || '').trim() : '',
+      cor: idxItemCor >= 0 ? String(row[idxItemCor] || '').trim() : '',
+      quantidadeSolicitada: Number(row[idxItemQtdSolicitada]) || 0,
+      quantidadeAtendida: Number(row[idxItemQtdAtendida]) || 0,
+      statusItem: String(row[idxItemStatus] || '').trim(),
+      alternativaSugerida: idxItemAlternativa >= 0 ? String(row[idxItemAlternativa] || '').trim() : ''
+    });
+  });
+
+  const pedidos = responseData
+    .slice(1)
+    .map(row => {
+      const requestId = idxRequestId >= 0 ? String(row[idxRequestId] || '').trim() : '';
+      if (!requestId) return null;
+
+      const rawDataHora = idxDataHora >= 0 ? row[idxDataHora] : '';
+      const rawDataEntrega = idxDataEntrega >= 0 ? row[idxDataEntrega] : '';
+      const statusEntrega = idxStatusEntrega >= 0 ? String(row[idxStatusEntrega] || '').trim() : '';
+
+      return {
+        requestId,
+        dataHora: formatDateTimeSafe_(rawDataHora),
+        nomeCompleto: idxNomeCompleto >= 0 ? String(row[idxNomeCompleto] || '').trim() : '',
+        email: idxEmail >= 0 ? String(row[idxEmail] || '').trim() : '',
+        equipe: idxEquipe >= 0 ? String(row[idxEquipe] || '').trim() : '',
+        resumoPedido: idxResumoPedido >= 0 ? String(row[idxResumoPedido] || '').trim() : '',
+        statusGeral: idxStatusGeral >= 0 ? String(row[idxStatusGeral] || '').trim() : '',
+        statusEntrega: statusEntrega || 'PENDENTE',
+        entregueEm: formatDateTimeSafe_(rawDataEntrega),
+        items: itemsByRequestId[requestId] || [],
+        _timestamp: parseDateTimeSafe_(rawDataHora).getTime()
+      };
+    })
+    .filter(item => item)
+    .sort((a, b) => b._timestamp - a._timestamp)
+    .map(item => {
+      delete item._timestamp;
+      return item;
+    });
+
   return {
     logoUrl: DASHBOARD_LOGO_URL,
     instagramUrl: INSTAGRAM_URL,
@@ -330,7 +401,52 @@ function getDashboardData() {
       totalAlternativa,
       totalReposicao
     },
-    tabelaGerencial
+    tabelaGerencial,
+    pedidos
+  };
+}
+
+function markOrderDelivered(payload) {
+  const requestId = payload && payload.requestId ? String(payload.requestId).trim() : '';
+  if (!requestId) throw new Error('Informe o requestId para marcar como entregue.');
+
+  ensureMainResponseSheet_();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
+  if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" nao encontrada.`);
+
+  const headers = responseSheet.getRange(1, 1, 1, responseSheet.getLastColumn()).getValues()[0];
+  const idxRequestId = findHeaderIndex_(headers, ['ID Solicitacao', 'ID Solicitação']);
+  const idxStatusEntrega = findHeaderIndex_(headers, ['Status Entrega']);
+  const idxDataEntrega = findHeaderIndex_(headers, ['Data/Hora Entrega']);
+
+  if (idxRequestId < 0 || idxStatusEntrega < 0 || idxDataEntrega < 0) {
+    throw new Error('A aba de respostas precisa conter os campos de ID e entrega.');
+  }
+
+  const data = responseSheet.getDataRange().getValues();
+  let targetRow = -1;
+
+  for (let i = 1; i < data.length; i++) {
+    const currentRequestId = String(data[i][idxRequestId] || '').trim();
+    if (currentRequestId === requestId) {
+      targetRow = i + 1;
+      break;
+    }
+  }
+
+  if (targetRow === -1) {
+    throw new Error(`Pedido ${requestId} nao encontrado.`);
+  }
+
+  const now = new Date();
+  responseSheet.getRange(targetRow, idxStatusEntrega + 1).setValue('ENTREGUE');
+  responseSheet.getRange(targetRow, idxDataEntrega + 1).setValue(now);
+
+  return {
+    success: true,
+    requestId: requestId,
+    deliveredAt: Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
   };
 }
 
@@ -540,6 +656,8 @@ function appendMainRequestRow_(data) {
   setValueByHeader_(row, headers, 'Observação Geral', data.observacaoGeral);
   setValueByHeader_(row, headers, 'Nome Arquivo Comprovante', data.comprovanteNome);
   setValueByHeader_(row, headers, 'Link Comprovante', data.comprovanteUrl);
+  setValueByHeader_(row, headers, 'Status Entrega', 'PENDENTE');
+  setValueByHeader_(row, headers, 'Data/Hora Entrega', '');
 
   sheet.appendRow(row);
 }
@@ -906,7 +1024,9 @@ function ensureMainResponseSheet_() {
     'Status Geral',
     'Observação Geral',
     'Nome Arquivo Comprovante',
-    'Link Comprovante'
+    'Link Comprovante',
+    'Status Entrega',
+    'Data/Hora Entrega'
   ];
 
   ensureHeaders_(sheet, requiredHeaders);
@@ -966,6 +1086,30 @@ function ensureHeaders_(sheet, requiredHeaders) {
 function setValueByHeader_(rowArray, headers, headerName, value) {
   const idx = headers.indexOf(headerName);
   if (idx >= 0) rowArray[idx] = value;
+}
+
+function findHeaderIndex_(headers, candidates) {
+  if (!headers || !headers.length) return -1;
+  const normalizedCandidates = (candidates || []).map(item => normalizeText_(item));
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizedCandidates.includes(normalizeText_(headers[i]))) return i;
+  }
+  return -1;
+}
+
+function parseDateTimeSafe_(value) {
+  if (!value) return new Date(0);
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) return value;
+
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) return parsed;
+  return new Date(0);
+}
+
+function formatDateTimeSafe_(value) {
+  const dt = parseDateTimeSafe_(value);
+  if (dt.getTime() === 0) return '';
+  return Utilities.formatDate(dt, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
 }
 
 function getOrCreateFolderByName_(folderName) {

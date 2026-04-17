@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MOCK_STOCK } from '../data/mockData';
-import { fetchDashboardData, isMockApiEnabled } from '../services/api';
-import type { DashboardData } from '../types/api';
+import { fetchDashboardData, isMockApiEnabled, markOrderDelivered } from '../services/api';
+import type { DashboardData, DashboardOrder } from '../types/api';
 
 function buildMockDashboardData(): DashboardData {
   const totalFisico = MOCK_STOCK.reduce((acc, curr) => acc + curr.quantidade, 0);
@@ -40,6 +40,37 @@ function buildMockDashboardData(): DashboardData {
       alternativas: row.alternativas,
       reposicoes: row.reposicoes,
     })),
+    pedidos: [
+      {
+        requestId: 'SOL-20260416-101000',
+        dataHora: '16/04/2026 10:10:00',
+        nomeCompleto: 'Maria Souza',
+        email: 'maria@email.com',
+        equipe: 'Banda',
+        resumoPedido: '1x P | Branca [RESERVADO] ; 1x M | Azul [RESERVADO]',
+        statusGeral: 'RESERVADO',
+        statusEntrega: 'PENDENTE',
+        entregueEm: '',
+        items: [
+          { tamanho: 'P', cor: 'Branca', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
+          { tamanho: 'M', cor: 'Azul', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
+        ],
+      },
+      {
+        requestId: 'SOL-20260416-111500',
+        dataHora: '16/04/2026 11:15:00',
+        nomeCompleto: 'Joao Lima',
+        email: 'joao@email.com',
+        equipe: 'Sala',
+        resumoPedido: '2x GG | Preta [SUGERIR ALTERNATIVA]',
+        statusGeral: 'SUGERIR ALTERNATIVA',
+        statusEntrega: 'ENTREGUE',
+        entregueEm: '16/04/2026 18:42:00',
+        items: [
+          { tamanho: 'GG', cor: 'Preta', quantidadeSolicitada: 2, quantidadeAtendida: 0, statusItem: 'SUGERIR ALTERNATIVA', alternativaSugerida: 'XG | Preta' },
+        ],
+      },
+    ],
   };
 }
 
@@ -47,6 +78,8 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchName, setSearchName] = useState('');
+  const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   const load = async () => {
@@ -77,6 +110,69 @@ export default function Dashboard() {
     if (value <= 2) return 'text-danger font-bold';
     if (value <= 5) return 'text-[#b45309] font-bold';
     return 'text-success font-bold';
+  };
+
+  const normalizeText = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const filteredOrders = useMemo(() => {
+    if (!data) return [];
+    const orders = Array.isArray(data.pedidos) ? data.pedidos : [];
+    const needle = normalizeText(searchName);
+    if (!needle) return orders;
+
+    return orders.filter((order) => normalizeText(order.nomeCompleto).includes(needle));
+  }, [data, searchName]);
+
+  const handleMarkAsDelivered = async (order: DashboardOrder) => {
+    setError(null);
+    setDeliveringId(order.requestId);
+
+    try {
+      if (isMockApiEnabled()) {
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pedidos: prev.pedidos.map((item) =>
+              item.requestId === order.requestId
+                ? {
+                    ...item,
+                    statusEntrega: 'ENTREGUE',
+                    entregueEm: new Date().toLocaleString('pt-BR'),
+                  }
+                : item,
+            ),
+          };
+        });
+        return;
+      }
+
+      const result = await markOrderDelivered(order.requestId);
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          pedidos: prev.pedidos.map((item) =>
+            item.requestId === result.requestId
+              ? {
+                  ...item,
+                  statusEntrega: 'ENTREGUE',
+                  entregueEm: result.deliveredAt,
+                }
+              : item,
+          ),
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao marcar pedido como entregue.');
+    } finally {
+      setDeliveringId(null);
+    }
   };
 
   const MetricCard = ({ label, value }: { label: string; value: number }) => (
@@ -180,6 +276,103 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div className="bg-white border border-border-color rounded-[16px] overflow-hidden mt-8">
+          <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
+            <h2 className="m-0 text-[18px] font-bold text-text-main">Pedidos por solicitante</h2>
+            <p className="mt-1.5 mb-0 text-text-muted text-[13px]">Busque pelo nome para localizar o pedido e marque como entregue.</p>
+          </div>
+
+          <div className="p-4 md:p-5 border-b border-border-color bg-[#FCFCFC]">
+            <input
+              type="text"
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+              placeholder="Buscar por nome do solicitante..."
+              className="w-full md:max-w-[420px] p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
+            />
+          </div>
+
+          <div className="p-4 md:p-5 flex flex-col gap-3">
+            {filteredOrders.length === 0 && (
+              <div className="text-[14px] text-text-muted">Nenhum pedido encontrado para esse nome.</div>
+            )}
+
+            {filteredOrders.map((order) => {
+              const isDelivered = order.statusEntrega === 'ENTREGUE';
+              const isDelivering = deliveringId === order.requestId;
+
+              return (
+                <div key={order.requestId} className="border border-border-color rounded-[12px] p-4 bg-white">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div>
+                      <div className="text-[16px] font-bold text-text-main">{order.nomeCompleto}</div>
+                      <div className="text-[12px] text-text-muted mt-1">
+                        {order.equipe} | {order.email}
+                      </div>
+                      <div className="text-[12px] text-text-muted mt-1">
+                        ID: {order.requestId} | Solicitado em: {order.dataHora}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-start lg:items-end gap-2">
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${isDelivered ? 'bg-[#e4f5ed] text-[#065f46]' : 'bg-[#fff7ed] text-[#9a3412]'}`}>
+                        Entrega: {order.statusEntrega}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAsDelivered(order)}
+                        disabled={isDelivered || isDelivering}
+                        className="border-none cursor-pointer bg-primary text-white px-4 py-2 rounded-[8px] font-bold text-[12px] disabled:bg-[#cbd5e1] disabled:cursor-not-allowed"
+                      >
+                        {isDelivered ? 'Ja entregue' : isDelivering ? 'Salvando...' : 'Marcar como entregue'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-[13px] text-text-main">
+                    <strong>Status do estoque:</strong> {order.statusGeral}
+                  </div>
+                  <div className="mt-1 text-[13px] text-text-main">
+                    <strong>Resumo:</strong> {order.resumoPedido}
+                  </div>
+                  {order.entregueEm && (
+                    <div className="mt-1 text-[12px] text-text-muted">
+                      Entregue em: {order.entregueEm}
+                    </div>
+                  )}
+
+                  {order.items.length > 0 && (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="w-full min-w-[680px] border-collapse text-[12px]">
+                        <thead>
+                          <tr>
+                            <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Item</th>
+                            <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Sol.</th>
+                            <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Atend.</th>
+                            <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Status</th>
+                            <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Alternativa</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {order.items.map((item, idx) => (
+                            <tr key={`${order.requestId}-${idx}`}>
+                              <td className="p-2 border border-border-color">{item.tamanho} | {item.cor}</td>
+                              <td className="p-2 border border-border-color">{item.quantidadeSolicitada}</td>
+                              <td className="p-2 border border-border-color">{item.quantidadeAtendida}</td>
+                              <td className="p-2 border border-border-color">{item.statusItem}</td>
+                              <td className="p-2 border border-border-color">{item.alternativaSugerida || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
