@@ -42,6 +42,9 @@ export default function Form() {
   const PRICE = 40;
   const PIX_KEY = '21980342025';
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
+  const SHIRT_LINKS: Record<string, string> = {
+    Preta: 'https://imgur.com/HaLhOb2',
+  };
   const HELP_STEPS = [
     {
       title: '1. Pagamento e comprovante',
@@ -476,7 +479,19 @@ export default function Form() {
 
                   <div>
                     <div className="flex flex-col gap-1.5 mb-4">
-                      <label className="text-[11px] text-text-muted font-semibold uppercase">Cor da camisa</label>
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[11px] text-text-muted font-semibold uppercase">Cor da camisa</label>
+                        {item.color === 'Preta' && SHIRT_LINKS.Preta && (
+                          <a
+                            href={SHIRT_LINKS.Preta}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] font-bold text-primary no-underline border border-primary/20 rounded-[999px] px-2 py-1 hover:bg-primary-light transition-colors"
+                          >
+                            Ver camisa
+                          </a>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {availableColors.map((c) => (
                           <button
