@@ -33,6 +33,7 @@ export default function Form() {
 
   const PRICE = 40;
   const PIX_KEY = '21980342025';
+  const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   useEffect(() => {
     let isMounted = true;
@@ -269,6 +270,11 @@ export default function Form() {
     <div className="md:flex md:justify-center md:items-start md:p-6 min-h-screen overflow-hidden bg-background">
       <div className="w-full max-w-[420px] bg-white md:rounded-[32px] md:shadow-[0_4px_20px_rgba(0,0,0,0.05)] md:border-[8px] md:border-[#1A1C1E] relative overflow-hidden pb-[140px] md:pb-[130px] md:my-0 mx-auto flex flex-col md:h-[calc(100vh-48px)]">
         <div className="bg-primary text-white p-5 text-center shrink-0">
+          <img
+            src={LOGO_URL}
+            alt="Logo EAC"
+            className="w-14 h-14 rounded-full object-cover mx-auto mb-2 border-2 border-white/40"
+          />
           <span className="inline-block bg-white/20 px-3 py-1 rounded-[4px] text-[10px] uppercase font-bold tracking-wider">
             EAC - Equipes
           </span>
