@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Shirt } from 'lucide-react';
 import { TEAMS, COLORS, SIZES, MOCK_STOCK, ShirtItem } from '../data/mockData';
 import { fetchBootstrapData, isMockApiEnabled, submitOrder } from '../services/api';
 import type { StockOptionRow } from '../types/api';
@@ -269,20 +270,29 @@ export default function Form() {
   return (
     <div className="md:flex md:justify-center md:items-start md:p-6 min-h-screen overflow-hidden bg-background">
       <div className="w-full max-w-[420px] bg-white md:rounded-[32px] md:shadow-[0_4px_20px_rgba(0,0,0,0.05)] md:border-[8px] md:border-[#1A1C1E] relative overflow-hidden pb-[140px] md:pb-[130px] md:my-0 mx-auto flex flex-col md:h-[calc(100vh-48px)]">
-        <div className="bg-primary text-white p-5 text-center shrink-0">
-          <img
-            src={LOGO_URL}
-            alt="Logo EAC"
-            className="w-14 h-14 rounded-full object-cover mx-auto mb-2 border-2 border-white/40"
-          />
-          <span className="inline-block bg-white/20 px-3 py-1 rounded-[4px] text-[10px] uppercase font-bold tracking-wider">
-            EAC - Equipes
-          </span>
-          <h1 className="mt-2 mb-1 text-[18px] font-bold leading-tight">Solicitacao de Camisas</h1>
-          <p className="m-0 opacity-90 text-[12px]">Pague no PIX, anexe o comprovante e conclua.</p>
+        <div className="bg-primary text-white p-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <img
+              src={LOGO_URL}
+              alt="Logo EAC"
+              className="w-14 h-14 rounded-full object-cover border-2 border-white/40 shrink-0"
+            />
+
+            <div className="flex-1 min-w-0">
+              <span className="inline-block bg-white/20 px-3 py-1 rounded-[4px] text-[10px] uppercase font-bold tracking-wider">
+                EAC - Equipes
+              </span>
+              <h1 className="mt-2 mb-1 text-[18px] font-bold leading-tight">Solicitacao de Camisas</h1>
+              <p className="m-0 opacity-90 text-[12px]">Pague no PIX, anexe o comprovante e conclua.</p>
+            </div>
+
+            <div className="w-11 h-11 rounded-full bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+              <Shirt size={20} className="text-white" />
+            </div>
+          </div>
         </div>
 
-        <div className="bg-gradient-to-br from-[#0056D2] to-[#003B91] text-white mx-4 mt-4 p-5 rounded-[16px] relative z-10 box-border">
+        <div className="bg-gradient-to-br from-[#0F4C81] to-[#0B3B64] text-white mx-4 mt-4 p-5 rounded-[16px] relative z-10 box-border">
           <div className="flex justify-between items-start gap-2">
             <div className="w-full">
               <div className="text-[12px] opacity-80 uppercase tracking-wide">Chave PIX</div>
