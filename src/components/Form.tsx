@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Shirt } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Shirt, X } from 'lucide-react';
 import { TEAMS, COLORS, SIZES, MOCK_STOCK, ShirtItem } from '../data/mockData';
 import { fetchBootstrapData, isMockApiEnabled, submitOrder } from '../services/api';
 import type { StockOptionRow } from '../types/api';
@@ -29,12 +29,33 @@ export default function Form() {
   const [message, setMessage] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingStock, setIsLoadingStock] = useState(true);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [helpStep, setHelpStep] = useState(0);
+  const [successModal, setSuccessModal] = useState<{ open: boolean; requestId: string; status: string }>({
+    open: false,
+    requestId: '',
+    status: '',
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const PRICE = 40;
   const PIX_KEY = '21980342025';
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
+  const HELP_STEPS = [
+    {
+      title: '1. Pagamento e comprovante',
+      text: 'Faca o pagamento no PIX, depois anexe o comprovante em PDF, JPG, JPEG ou PNG (maximo 10MB).',
+    },
+    {
+      title: '2. Seus dados',
+      text: 'Preencha nome, e-mail e equipe. Se escolher Outro, informe o nome da equipe no campo extra.',
+    },
+    {
+      title: '3. Itens da solicitacao',
+      text: 'Adicione os itens, escolha cor/tamanho, ajuste a quantidade e marque se aceita alternativas antes de enviar.',
+    },
+  ];
 
   useEffect(() => {
     let isMounted = true;
@@ -240,6 +261,11 @@ export default function Form() {
         text: `Solicitacao enviada com sucesso! ID: ${response.requestId} | Status: ${response.statusGeral}`,
       });
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      setSuccessModal({
+        open: true,
+        requestId: response.requestId,
+        status: response.statusGeral,
+      });
 
       setName('');
       setEmail('');
@@ -309,6 +335,20 @@ export default function Form() {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mx-4 mt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setHelpStep(0);
+              setIsHelpOpen(true);
+            }}
+            className="w-full bg-white border border-[#0F4C81]/20 text-[#0F4C81] rounded-[12px] p-3 font-bold text-[13px] flex items-center justify-center gap-2 hover:bg-[#F4F8FC] transition-colors"
+          >
+            <CircleHelp size={16} />
+            Como preencher a solicitacao
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 flex-1 bg-[#F8F9FA] overflow-y-auto custom-scrollbar">
@@ -550,6 +590,96 @@ export default function Form() {
           </button>
         </div>
       </div>
+
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/45 flex items-center justify-center p-4">
+          <div className="w-full max-w-[360px] bg-white rounded-[16px] shadow-xl border border-border-color overflow-hidden">
+            <div className="bg-primary text-white px-4 py-3 flex items-center justify-between">
+              <strong className="text-[14px]">Ajuda de preenchimento</strong>
+              <button
+                type="button"
+                onClick={() => setIsHelpOpen(false)}
+                className="bg-white/15 hover:bg-white/25 rounded-full p-1"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="text-[12px] text-text-muted mb-2">
+                Etapa {helpStep + 1} de {HELP_STEPS.length}
+              </div>
+              <h3 className="m-0 text-[16px] text-text-main font-bold">{HELP_STEPS[helpStep].title}</h3>
+              <p className="mt-2 mb-4 text-[13px] text-text-muted leading-relaxed">{HELP_STEPS[helpStep].text}</p>
+
+              <div className="flex items-center justify-center gap-2 mb-4">
+                {HELP_STEPS.map((_, idx) => (
+                  <span
+                    key={idx}
+                    className={`w-2 h-2 rounded-full ${idx === helpStep ? 'bg-primary' : 'bg-border-color'}`}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHelpStep((prev) => Math.max(0, prev - 1))}
+                  disabled={helpStep === 0}
+                  className="flex-1 border border-border-color rounded-[10px] py-2 text-[13px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
+                >
+                  <ChevronLeft size={14} />
+                  Voltar
+                </button>
+                {helpStep < HELP_STEPS.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setHelpStep((prev) => Math.min(HELP_STEPS.length - 1, prev + 1))}
+                    className="flex-1 bg-primary text-white rounded-[10px] py-2 text-[13px] font-semibold flex items-center justify-center gap-1"
+                  >
+                    Proximo
+                    <ChevronRight size={14} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsHelpOpen(false)}
+                    className="flex-1 bg-primary text-white rounded-[10px] py-2 text-[13px] font-semibold"
+                  >
+                    Entendi
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successModal.open && (
+        <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-[360px] bg-white rounded-[18px] border border-border-color shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 rounded-full bg-[#E7F4EC] mx-auto flex items-center justify-center mb-3">
+              <CheckCircle2 size={30} className="text-success" />
+            </div>
+            <h3 className="m-0 text-[18px] font-extrabold text-text-main">Solicitacao processada</h3>
+            <p className="mt-2 mb-4 text-[13px] text-text-muted">Seu pedido foi recebido com sucesso.</p>
+
+            <div className="bg-[#F8F9FA] border border-border-color rounded-[12px] p-3 mb-4">
+              <div className="text-[11px] uppercase tracking-wide text-text-muted">Codigo da solicitacao</div>
+              <div className="text-[16px] font-black text-primary mt-1">{successModal.requestId}</div>
+              <div className="text-[11px] text-text-muted mt-1">Status: {successModal.status}</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSuccessModal({ open: false, requestId: '', status: '' })}
+              className="w-full bg-primary text-white rounded-[12px] p-3 font-bold text-[14px]"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
