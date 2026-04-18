@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MOCK_STOCK } from '../data/mockData';
 import { fetchDashboardData, isMockApiEnabled, markOrderDelivered } from '../services/api';
 import type { DashboardData, DashboardOrder } from '../types/api';
@@ -74,6 +74,88 @@ function buildMockDashboardData(): DashboardData {
   };
 }
 
+type FilterIndicator = 
+  | 'totalFisico'
+  | 'totalReserva'
+  | 'totalDisponivel'
+  | 'totalPretaDisponivel'
+  | 'totalAzulDisponivel'
+  | 'totalReservados'
+  | 'totalAlternativa'
+  | 'totalReposicao'
+  | null;
+
+type IndicatorKey = Exclude<FilterIndicator, null>;
+
+type IndicatorConfig = {
+  label: string;
+  title: string;
+  description: string;
+  filterRows: (rows: DashboardData['tabelaGerencial']) => DashboardData['tabelaGerencial'];
+};
+
+const INDICATOR_ORDER: IndicatorKey[] = [
+  'totalFisico',
+  'totalReserva',
+  'totalDisponivel',
+  'totalReservados',
+  'totalPretaDisponivel',
+  'totalAzulDisponivel',
+  'totalAlternativa',
+  'totalReposicao',
+];
+
+const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
+  totalFisico: {
+    label: 'Estoque Fisico Total',
+    title: 'Estoque Fisico Total',
+    description: 'Mostrando tamanhos/cores com estoque fisico acima de zero.',
+    filterRows: (rows) => rows.filter((row) => row.quantidade > 0),
+  },
+  totalReserva: {
+    label: 'Reserva Brinde Total',
+    title: 'Reserva Brinde Total',
+    description: 'Filtrando apenas os tamanhos/cores que possuem camisas reservadas como brinde.',
+    filterRows: (rows) => rows.filter((row) => row.reserva > 0),
+  },
+  totalDisponivel: {
+    label: 'Disponivel Total',
+    title: 'Disponivel Total',
+    description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
+  },
+  totalPretaDisponivel: {
+    label: 'Disponivel Preta',
+    title: 'Disponivel Pretas',
+    description: 'Filtrando apenas camisas PRETAS que estao disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.cor === 'Preta' && row.disponivel > 0),
+  },
+  totalAzulDisponivel: {
+    label: 'Disponivel Azul',
+    title: 'Disponivel Azuis',
+    description: 'Filtrando apenas camisas AZUIS que estao disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.cor === 'Azul' && row.disponivel > 0),
+  },
+  totalReservados: {
+    label: 'Pedidos Reservados',
+    title: 'Pedidos Reservados',
+    description: 'Filtrando apenas os tamanhos/cores que possuem pedidos em status RESERVADO.',
+    filterRows: (rows) => rows.filter((row) => row.reservados > 0),
+  },
+  totalAlternativa: {
+    label: 'Pedidos c/ Alternativa',
+    title: 'Pedidos c/ Alternativa',
+    description: 'Filtrando apenas os tamanhos/cores com pedidos aguardando resposta sobre alternativa.',
+    filterRows: (rows) => rows.filter((row) => row.alternativas > 0),
+  },
+  totalReposicao: {
+    label: 'Pedidos em Reposicao',
+    title: 'Pedidos em Reposicao',
+    description: 'Filtrando apenas os tamanhos/cores com pedidos em status de REPOSICAO.',
+    filterRows: (rows) => rows.filter((row) => row.reposicoes > 0),
+  },
+};
+
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +163,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'detalhamento' | 'pedidos'>('detalhamento');
   const [searchName, setSearchName] = useState('');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
+  const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
+  const lastPointerToggleAtRef = useRef(0);
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   const load = async () => {
@@ -119,6 +203,33 @@ export default function Dashboard() {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim();
+
+  const filteredTable = useMemo(() => {
+    if (!data) return [];
+    if (!filterIndicator) return data.tabelaGerencial;
+    return INDICATOR_CONFIG[filterIndicator].filterRows(data.tabelaGerencial);
+  }, [data, filterIndicator]);
+
+  const activeFilterInfo = filterIndicator ? INDICATOR_CONFIG[filterIndicator] : null;
+
+  const toggleIndicatorFilter = (indicator: IndicatorKey) => {
+    setFilterIndicator((prev) => (prev === indicator ? null : indicator));
+  };
+
+  const triggerIndicatorFilter = (source: 'pointer' | 'click', indicator: IndicatorKey) => {
+    const now = Date.now();
+
+    // Pointer up is often followed by click, so ignore the duplicated click toggle.
+    if (source === 'click' && now - lastPointerToggleAtRef.current < 250) {
+      return;
+    }
+
+    if (source === 'pointer') {
+      lastPointerToggleAtRef.current = now;
+    }
+
+    toggleIndicatorFilter(indicator);
+  };
 
   const filteredOrders = useMemo(() => {
     if (!data) return [];
@@ -176,11 +287,41 @@ export default function Dashboard() {
     }
   };
 
-  const MetricCard = ({ label, value }: { label: string; value: number }) => (
-    <div className="bg-white border border-border-color rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-      <div className="text-text-muted text-[14px] mb-2 font-medium">{label}</div>
-      <div className="text-primary text-[28px] font-extrabold">{value}</div>
-    </div>
+  const MetricCard = ({
+    indicator,
+    label,
+    value,
+    isActive,
+    onClick,
+  }: {
+    indicator: IndicatorKey;
+    label: string;
+    value: number;
+    isActive: boolean;
+    onClick: (source: 'pointer' | 'click', indicator: IndicatorKey) => void;
+  }) => (
+    <button
+      type="button"
+      onPointerUp={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        onClick('pointer', indicator);
+      }}
+      onClick={() => onClick('click', indicator)}
+      aria-pressed={isActive}
+      className={`relative z-10 pointer-events-auto border-none cursor-pointer rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all ${
+        isActive
+          ? 'bg-primary text-white ring-2 ring-primary ring-offset-2'
+          : 'bg-white text-text-main hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)]'
+      }`}
+    >
+      <div className={`text-[14px] mb-2 font-medium ${isActive ? 'text-white/80' : 'text-text-muted'}`}>{label}</div>
+      <div className={`text-[28px] font-extrabold ${isActive ? 'text-white' : 'text-primary'}`}>{value}</div>
+      {isActive && (
+        <div className="mt-3 text-[11px] font-semibold text-white bg-white/20 px-2 py-1 rounded inline-block">
+          ✓ Filtro ativo
+        </div>
+      )}
+    </button>
   );
 
   if (loading) {
@@ -254,16 +395,39 @@ export default function Dashboard() {
         {activeTab === 'detalhamento' && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <MetricCard label="Estoque Fisico Total" value={data.indicadores.totalFisico} />
-              <MetricCard label="Reserva Brinde Total" value={data.indicadores.totalReserva} />
-              <MetricCard label="Disponivel Total" value={data.indicadores.totalDisponivel} />
-              <MetricCard label="Pedidos Reservados" value={data.indicadores.totalReservados} />
-
-              <MetricCard label="Disponivel Preta" value={data.indicadores.totalPretaDisponivel} />
-              <MetricCard label="Disponivel Azul" value={data.indicadores.totalAzulDisponivel} />
-              <MetricCard label="Pedidos c/ Alternativa" value={data.indicadores.totalAlternativa} />
-              <MetricCard label="Pedidos em Reposicao" value={data.indicadores.totalReposicao} />
+              {INDICATOR_ORDER.map((indicator) => (
+                <div key={indicator}>
+                  <MetricCard
+                    indicator={indicator}
+                    label={INDICATOR_CONFIG[indicator].label}
+                    value={data.indicadores[indicator]}
+                    isActive={filterIndicator === indicator}
+                    onClick={triggerIndicatorFilter}
+                  />
+                </div>
+              ))}
             </div>
+
+            {activeFilterInfo && (
+              <div className="bg-[#e8f5e9] border border-[#4caf50] rounded-[12px] p-4 mb-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-bold text-[#1b5e20]">{activeFilterInfo.title}</div>
+                    <div className="text-[13px] text-[#2e7d32] mt-1">{activeFilterInfo.description}</div>
+                    <div className="text-[12px] text-[#1b5e20] mt-1.5">
+                      Exibindo {filteredTable.length} de {data.tabelaGerencial.length} linha(s).
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFilterIndicator(null)}
+                    className="border-none cursor-pointer bg-[#4caf50] text-white px-3 py-1.5 rounded-[6px] font-bold text-[12px] hover:bg-[#45a049] transition-colors flex-shrink-0"
+                  >
+                    Limpar
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white border border-border-color rounded-[16px] overflow-hidden">
               <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
@@ -287,7 +451,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.tabelaGerencial.map((row, idx) => (
+                    {filteredTable.map((row, idx) => (
                       <tr key={`${row.tamanho}-${row.cor}-${idx}`} className="hover:bg-[#FAFAFA] transition-colors border-b border-border-color last:border-0">
                         <td className="p-4 font-medium">{row.tamanho}</td>
                         <td className="p-4">{row.cor}</td>
@@ -300,6 +464,13 @@ export default function Dashboard() {
                         <td className="p-4 text-text-muted">{row.reposicoes}</td>
                       </tr>
                     ))}
+                    {filteredTable.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="p-6 text-center text-text-muted">
+                          Nenhum registro encontrado para o filtro selecionado.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
