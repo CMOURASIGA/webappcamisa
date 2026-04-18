@@ -85,6 +85,77 @@ type FilterIndicator =
   | 'totalReposicao'
   | null;
 
+type IndicatorKey = Exclude<FilterIndicator, null>;
+
+type IndicatorConfig = {
+  label: string;
+  title: string;
+  description: string;
+  filterRows: (rows: DashboardData['tabelaGerencial']) => DashboardData['tabelaGerencial'];
+};
+
+const INDICATOR_ORDER: IndicatorKey[] = [
+  'totalFisico',
+  'totalReserva',
+  'totalDisponivel',
+  'totalReservados',
+  'totalPretaDisponivel',
+  'totalAzulDisponivel',
+  'totalAlternativa',
+  'totalReposicao',
+];
+
+const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
+  totalFisico: {
+    label: 'Estoque Fisico Total',
+    title: 'Estoque Fisico Total',
+    description: 'Mostrando tamanhos/cores com estoque fisico acima de zero.',
+    filterRows: (rows) => rows.filter((row) => row.quantidade > 0),
+  },
+  totalReserva: {
+    label: 'Reserva Brinde Total',
+    title: 'Reserva Brinde Total',
+    description: 'Filtrando apenas os tamanhos/cores que possuem camisas reservadas como brinde.',
+    filterRows: (rows) => rows.filter((row) => row.reserva > 0),
+  },
+  totalDisponivel: {
+    label: 'Disponivel Total',
+    title: 'Disponivel Total',
+    description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
+  },
+  totalPretaDisponivel: {
+    label: 'Disponivel Preta',
+    title: 'Disponivel Pretas',
+    description: 'Filtrando apenas camisas PRETAS que estao disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.cor === 'Preta' && row.disponivel > 0),
+  },
+  totalAzulDisponivel: {
+    label: 'Disponivel Azul',
+    title: 'Disponivel Azuis',
+    description: 'Filtrando apenas camisas AZUIS que estao disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => row.cor === 'Azul' && row.disponivel > 0),
+  },
+  totalReservados: {
+    label: 'Pedidos Reservados',
+    title: 'Pedidos Reservados',
+    description: 'Filtrando apenas os tamanhos/cores que possuem pedidos em status RESERVADO.',
+    filterRows: (rows) => rows.filter((row) => row.reservados > 0),
+  },
+  totalAlternativa: {
+    label: 'Pedidos c/ Alternativa',
+    title: 'Pedidos c/ Alternativa',
+    description: 'Filtrando apenas os tamanhos/cores com pedidos aguardando resposta sobre alternativa.',
+    filterRows: (rows) => rows.filter((row) => row.alternativas > 0),
+  },
+  totalReposicao: {
+    label: 'Pedidos em Reposicao',
+    title: 'Pedidos em Reposicao',
+    description: 'Filtrando apenas os tamanhos/cores com pedidos em status de REPOSICAO.',
+    filterRows: (rows) => rows.filter((row) => row.reposicoes > 0),
+  },
+};
+
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,71 +203,16 @@ export default function Dashboard() {
       .toLowerCase()
       .trim();
 
-  const getFilteredTable = () => {
-    if (!data || !filterIndicator) return data.tabelaGerencial;
+  const filteredTable = useMemo(() => {
+    if (!data) return [];
+    if (!filterIndicator) return data.tabelaGerencial;
+    return INDICATOR_CONFIG[filterIndicator].filterRows(data.tabelaGerencial);
+  }, [data, filterIndicator]);
 
-    const table = data.tabelaGerencial;
+  const activeFilterInfo = filterIndicator ? INDICATOR_CONFIG[filterIndicator] : null;
 
-    switch (filterIndicator) {
-      case 'totalFisico':
-        return table;
-      case 'totalReserva':
-        return table.filter(row => row.reserva > 0);
-      case 'totalDisponivel':
-        return table.filter(row => row.disponivel > 0);
-      case 'totalPretaDisponivel':
-        return table.filter(row => row.cor === 'Preta' && row.disponivel > 0);
-      case 'totalAzulDisponivel':
-        return table.filter(row => row.cor === 'Azul' && row.disponivel > 0);
-      case 'totalReservados':
-        return table.filter(row => row.reservados > 0);
-      case 'totalAlternativa':
-        return table.filter(row => row.alternativas > 0);
-      case 'totalReposicao':
-        return table.filter(row => row.reposicoes > 0);
-      default:
-        return table;
-    }
-  };
-
-  const getFilterDescription = () => {
-    const descriptions: Record<FilterIndicator, { title: string; description: string }> = {
-      totalFisico: {
-        title: 'Estoque Físico Total',
-        description: 'Mostrando todas as linhas de estoque disponíveis no sistema.',
-      },
-      totalReserva: {
-        title: 'Reserva Brinde Total',
-        description: 'Filtrando apenas os tamanhos/cores que possuem camisas reservadas como brinde.',
-      },
-      totalDisponivel: {
-        title: 'Disponível Total',
-        description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponíveis para venda.',
-      },
-      totalPretaDisponivel: {
-        title: 'Disponível Pretas',
-        description: 'Filtrando apenas camisas PRETAS que estão disponíveis para venda.',
-      },
-      totalAzulDisponivel: {
-        title: 'Disponível Azuis',
-        description: 'Filtrando apenas camisas AZUIS que estão disponíveis para venda.',
-      },
-      totalReservados: {
-        title: 'Pedidos Reservados',
-        description: 'Filtrando apenas os tamanhos/cores que possuem pedidos em status RESERVADO.',
-      },
-      totalAlternativa: {
-        title: 'Pedidos c/ Alternativa',
-        description: 'Filtrando apenas os tamanhos/cores com pedidos aguardando resposta sobre alternativa.',
-      },
-      totalReposicao: {
-        title: 'Pedidos em Reposição',
-        description: 'Filtrando apenas os tamanhos/cores com pedidos em status de REPOSIÇÃO.',
-      },
-      null: { title: '', description: '' },
-    };
-
-    return descriptions[filterIndicator];
+  const toggleIndicatorFilter = (indicator: IndicatorKey) => {
+    setFilterIndicator((prev) => (prev === indicator ? null : indicator));
   };
 
   const filteredOrders = useMemo(() => {
@@ -255,22 +271,21 @@ export default function Dashboard() {
     }
   };
 
-  const MetricCard = ({ 
-    label, 
+  const MetricCard = ({
+    label,
     value,
-    indicatorKey,
     isActive,
-    onClick
-  }: { 
-    label: string
-    value: number
-    indicatorKey: FilterIndicator
-    isActive: boolean
-    onClick: () => void
+    onClick,
+  }: {
+    label: string;
+    value: number;
+    isActive: boolean;
+    onClick: () => void;
   }) => (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={isActive}
       className={`border-none cursor-pointer rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all ${
         isActive
           ? 'bg-primary text-white ring-2 ring-primary ring-offset-2'
@@ -358,71 +373,26 @@ export default function Dashboard() {
         {activeTab === 'detalhamento' && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <MetricCard 
-                label="Estoque Fisico Total" 
-                value={data.indicadores.totalFisico}
-                indicatorKey="totalFisico"
-                isActive={filterIndicator === 'totalFisico'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalFisico' ? null : 'totalFisico')}
-              />
-              <MetricCard 
-                label="Reserva Brinde Total" 
-                value={data.indicadores.totalReserva}
-                indicatorKey="totalReserva"
-                isActive={filterIndicator === 'totalReserva'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalReserva' ? null : 'totalReserva')}
-              />
-              <MetricCard 
-                label="Disponivel Total" 
-                value={data.indicadores.totalDisponivel}
-                indicatorKey="totalDisponivel"
-                isActive={filterIndicator === 'totalDisponivel'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalDisponivel' ? null : 'totalDisponivel')}
-              />
-              <MetricCard 
-                label="Pedidos Reservados" 
-                value={data.indicadores.totalReservados}
-                indicatorKey="totalReservados"
-                isActive={filterIndicator === 'totalReservados'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalReservados' ? null : 'totalReservados')}
-              />
-
-              <MetricCard 
-                label="Disponivel Preta" 
-                value={data.indicadores.totalPretaDisponivel}
-                indicatorKey="totalPretaDisponivel"
-                isActive={filterIndicator === 'totalPretaDisponivel'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalPretaDisponivel' ? null : 'totalPretaDisponivel')}
-              />
-              <MetricCard 
-                label="Disponivel Azul" 
-                value={data.indicadores.totalAzulDisponivel}
-                indicatorKey="totalAzulDisponivel"
-                isActive={filterIndicator === 'totalAzulDisponivel'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalAzulDisponivel' ? null : 'totalAzulDisponivel')}
-              />
-              <MetricCard 
-                label="Pedidos c/ Alternativa" 
-                value={data.indicadores.totalAlternativa}
-                indicatorKey="totalAlternativa"
-                isActive={filterIndicator === 'totalAlternativa'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalAlternativa' ? null : 'totalAlternativa')}
-              />
-              <MetricCard 
-                label="Pedidos em Reposicao" 
-                value={data.indicadores.totalReposicao}
-                indicatorKey="totalReposicao"
-                isActive={filterIndicator === 'totalReposicao'}
-                onClick={() => setFilterIndicator(filterIndicator === 'totalReposicao' ? null : 'totalReposicao')}
-              />
+              {INDICATOR_ORDER.map((indicator) => (
+                <MetricCard
+                  key={indicator}
+                  label={INDICATOR_CONFIG[indicator].label}
+                  value={data.indicadores[indicator]}
+                  isActive={filterIndicator === indicator}
+                  onClick={() => toggleIndicatorFilter(indicator)}
+                />
+              ))}
             </div>
 
-            {filterIndicator && (
+            {activeFilterInfo && (
               <div className="bg-[#e8f5e9] border border-[#4caf50] rounded-[12px] p-4 mb-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="font-bold text-[#1b5e20]">{getFilterDescription().title}</div>
-                    <div className="text-[13px] text-[#2e7d32] mt-1">{getFilterDescription().description}</div>
+                    <div className="font-bold text-[#1b5e20]">{activeFilterInfo.title}</div>
+                    <div className="text-[13px] text-[#2e7d32] mt-1">{activeFilterInfo.description}</div>
+                    <div className="text-[12px] text-[#1b5e20] mt-1.5">
+                      Exibindo {filteredTable.length} de {data.tabelaGerencial.length} linha(s).
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -457,7 +427,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredTable().map((row, idx) => (
+                    {filteredTable.map((row, idx) => (
                       <tr key={`${row.tamanho}-${row.cor}-${idx}`} className="hover:bg-[#FAFAFA] transition-colors border-b border-border-color last:border-0">
                         <td className="p-4 font-medium">{row.tamanho}</td>
                         <td className="p-4">{row.cor}</td>
@@ -470,6 +440,13 @@ export default function Dashboard() {
                         <td className="p-4 text-text-muted">{row.reposicoes}</td>
                       </tr>
                     ))}
+                    {filteredTable.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="p-6 text-center text-text-muted">
+                          Nenhum registro encontrado para o filtro selecionado.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
