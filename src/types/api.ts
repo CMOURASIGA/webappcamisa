@@ -88,6 +88,7 @@ export interface DashboardData {
     totalFisico: number;
     totalReserva: number;
     totalDisponivel: number;
+    totalBrancaDisponivel: number;
     totalPretaDisponivel: number;
     totalAzulDisponivel: number;
     totalReservados: number;

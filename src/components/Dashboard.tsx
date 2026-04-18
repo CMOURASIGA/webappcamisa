@@ -9,6 +9,7 @@ function buildMockDashboardData(): DashboardData {
   const totalDisponivel = MOCK_STOCK.reduce((acc, curr) => acc + curr.disponivel, 0);
   const totalReservados = MOCK_STOCK.reduce((acc, curr) => acc + curr.reservados, 0);
 
+  const totalBrancaDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Branca').reduce((acc, curr) => acc + curr.disponivel, 0);
   const totalPretaDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Preta').reduce((acc, curr) => acc + curr.disponivel, 0);
   const totalAzulDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Azul').reduce((acc, curr) => acc + curr.disponivel, 0);
 
@@ -23,6 +24,7 @@ function buildMockDashboardData(): DashboardData {
       totalFisico,
       totalReserva,
       totalDisponivel,
+      totalBrancaDisponivel,
       totalPretaDisponivel,
       totalAzulDisponivel,
       totalReservados,
@@ -78,6 +80,7 @@ type FilterIndicator =
   | 'totalFisico'
   | 'totalReserva'
   | 'totalDisponivel'
+  | 'totalBrancaDisponivel'
   | 'totalPretaDisponivel'
   | 'totalAzulDisponivel'
   | 'totalReservados'
@@ -98,11 +101,24 @@ type IndicatorConfig = {
 const sumBy = (rows: DashboardData['tabelaGerencial'], selector: (row: DashboardData['tabelaGerencial'][number]) => number) =>
   rows.reduce((acc, row) => acc + selector(row), 0);
 
+const normalizeColor = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const isWhiteColor = (value: string) => {
+  const normalized = normalizeColor(value);
+  return normalized === 'branca' || normalized === 'branco' || normalized === 'white';
+};
+
 const INDICATOR_ORDER: IndicatorKey[] = [
   'totalFisico',
   'totalReserva',
   'totalDisponivel',
   'totalReservados',
+  'totalBrancaDisponivel',
   'totalPretaDisponivel',
   'totalAzulDisponivel',
   'totalAlternativa',
@@ -130,6 +146,13 @@ const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
     description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
     filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
     getValue: (rows) => sumBy(rows, (row) => row.disponivel),
+  },
+  totalBrancaDisponivel: {
+    label: 'Disponivel Branca',
+    title: 'Disponivel Brancas',
+    description: 'Filtrando apenas camisas BRANCAS que estao disponiveis para venda.',
+    filterRows: (rows) => rows.filter((row) => isWhiteColor(row.cor) && row.disponivel > 0),
+    getValue: (rows) => sumBy(rows.filter((row) => isWhiteColor(row.cor)), (row) => row.disponivel),
   },
   totalPretaDisponivel: {
     label: 'Disponivel Preta',
