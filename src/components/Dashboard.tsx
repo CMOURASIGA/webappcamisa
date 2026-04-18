@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MOCK_STOCK } from '../data/mockData';
 import { fetchDashboardData, isMockApiEnabled, markOrderDelivered } from '../services/api';
 import type { DashboardData, DashboardOrder } from '../types/api';
@@ -164,6 +164,7 @@ export default function Dashboard() {
   const [searchName, setSearchName] = useState('');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
+  const lastPointerToggleAtRef = useRef(0);
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   const load = async () => {
@@ -213,6 +214,21 @@ export default function Dashboard() {
 
   const toggleIndicatorFilter = (indicator: IndicatorKey) => {
     setFilterIndicator((prev) => (prev === indicator ? null : indicator));
+  };
+
+  const triggerIndicatorFilter = (source: 'pointer' | 'click', indicator: IndicatorKey) => {
+    const now = Date.now();
+
+    // Pointer up is often followed by click, so ignore the duplicated click toggle.
+    if (source === 'click' && now - lastPointerToggleAtRef.current < 250) {
+      return;
+    }
+
+    if (source === 'pointer') {
+      lastPointerToggleAtRef.current = now;
+    }
+
+    toggleIndicatorFilter(indicator);
   };
 
   const filteredOrders = useMemo(() => {
@@ -272,21 +288,27 @@ export default function Dashboard() {
   };
 
   const MetricCard = ({
+    indicator,
     label,
     value,
     isActive,
     onClick,
   }: {
+    indicator: IndicatorKey;
     label: string;
     value: number;
     isActive: boolean;
-    onClick: () => void;
+    onClick: (source: 'pointer' | 'click', indicator: IndicatorKey) => void;
   }) => (
     <button
       type="button"
-      onClick={onClick}
+      onPointerUp={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        onClick('pointer', indicator);
+      }}
+      onClick={() => onClick('click', indicator)}
       aria-pressed={isActive}
-      className={`border-none cursor-pointer rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all ${
+      className={`relative z-10 pointer-events-auto border-none cursor-pointer rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all ${
         isActive
           ? 'bg-primary text-white ring-2 ring-primary ring-offset-2'
           : 'bg-white text-text-main hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)]'
@@ -374,13 +396,15 @@ export default function Dashboard() {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
               {INDICATOR_ORDER.map((indicator) => (
-                <MetricCard
-                  key={indicator}
-                  label={INDICATOR_CONFIG[indicator].label}
-                  value={data.indicadores[indicator]}
-                  isActive={filterIndicator === indicator}
-                  onClick={() => toggleIndicatorFilter(indicator)}
-                />
+                <div key={indicator}>
+                  <MetricCard
+                    indicator={indicator}
+                    label={INDICATOR_CONFIG[indicator].label}
+                    value={data.indicadores[indicator]}
+                    isActive={filterIndicator === indicator}
+                    onClick={triggerIndicatorFilter}
+                  />
+                </div>
               ))}
             </div>
 
