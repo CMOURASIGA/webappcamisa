@@ -92,7 +92,11 @@ type IndicatorConfig = {
   title: string;
   description: string;
   filterRows: (rows: DashboardData['tabelaGerencial']) => DashboardData['tabelaGerencial'];
+  getValue: (rows: DashboardData['tabelaGerencial']) => number;
 };
+
+const sumBy = (rows: DashboardData['tabelaGerencial'], selector: (row: DashboardData['tabelaGerencial'][number]) => number) =>
+  rows.reduce((acc, row) => acc + selector(row), 0);
 
 const INDICATOR_ORDER: IndicatorKey[] = [
   'totalFisico',
@@ -111,48 +115,56 @@ const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
     title: 'Estoque Fisico Total',
     description: 'Mostrando tamanhos/cores com estoque fisico acima de zero.',
     filterRows: (rows) => rows.filter((row) => row.quantidade > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.quantidade),
   },
   totalReserva: {
     label: 'Reserva Brinde Total',
     title: 'Reserva Brinde Total',
     description: 'Filtrando apenas os tamanhos/cores que possuem camisas reservadas como brinde.',
     filterRows: (rows) => rows.filter((row) => row.reserva > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.reserva),
   },
   totalDisponivel: {
     label: 'Disponivel Total',
     title: 'Disponivel Total',
     description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
     filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.disponivel),
   },
   totalPretaDisponivel: {
     label: 'Disponivel Preta',
     title: 'Disponivel Pretas',
     description: 'Filtrando apenas camisas PRETAS que estao disponiveis para venda.',
     filterRows: (rows) => rows.filter((row) => row.cor === 'Preta' && row.disponivel > 0),
+    getValue: (rows) => sumBy(rows.filter((row) => row.cor === 'Preta'), (row) => row.disponivel),
   },
   totalAzulDisponivel: {
     label: 'Disponivel Azul',
     title: 'Disponivel Azuis',
     description: 'Filtrando apenas camisas AZUIS que estao disponiveis para venda.',
     filterRows: (rows) => rows.filter((row) => row.cor === 'Azul' && row.disponivel > 0),
+    getValue: (rows) => sumBy(rows.filter((row) => row.cor === 'Azul'), (row) => row.disponivel),
   },
   totalReservados: {
     label: 'Pedidos Reservados',
     title: 'Pedidos Reservados',
     description: 'Filtrando apenas os tamanhos/cores que possuem pedidos em status RESERVADO.',
     filterRows: (rows) => rows.filter((row) => row.reservados > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.reservados),
   },
   totalAlternativa: {
     label: 'Pedidos c/ Alternativa',
     title: 'Pedidos c/ Alternativa',
     description: 'Filtrando apenas os tamanhos/cores com pedidos aguardando resposta sobre alternativa.',
     filterRows: (rows) => rows.filter((row) => row.alternativas > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.alternativas),
   },
   totalReposicao: {
     label: 'Pedidos em Reposicao',
     title: 'Pedidos em Reposicao',
     description: 'Filtrando apenas os tamanhos/cores com pedidos em status de REPOSICAO.',
     filterRows: (rows) => rows.filter((row) => row.reposicoes > 0),
+    getValue: (rows) => sumBy(rows, (row) => row.reposicoes),
   },
 };
 
@@ -210,7 +222,16 @@ export default function Dashboard() {
     return INDICATOR_CONFIG[filterIndicator].filterRows(data.tabelaGerencial);
   }, [data, filterIndicator]);
 
+  const indicatorValues = useMemo(() => {
+    const rows = data?.tabelaGerencial ?? [];
+    return INDICATOR_ORDER.reduce((acc, indicator) => {
+      acc[indicator] = INDICATOR_CONFIG[indicator].getValue(rows);
+      return acc;
+    }, {} as Record<IndicatorKey, number>);
+  }, [data]);
+
   const activeFilterInfo = filterIndicator ? INDICATOR_CONFIG[filterIndicator] : null;
+  const activeIndicatorValue = filterIndicator ? INDICATOR_CONFIG[filterIndicator].getValue(filteredTable) : null;
 
   const toggleIndicatorFilter = (indicator: IndicatorKey) => {
     setFilterIndicator((prev) => (prev === indicator ? null : indicator));
@@ -400,7 +421,7 @@ export default function Dashboard() {
                   <MetricCard
                     indicator={indicator}
                     label={INDICATOR_CONFIG[indicator].label}
-                    value={data.indicadores[indicator]}
+                    value={indicatorValues[indicator]}
                     isActive={filterIndicator === indicator}
                     onClick={triggerIndicatorFilter}
                   />
@@ -414,6 +435,9 @@ export default function Dashboard() {
                   <div>
                     <div className="font-bold text-[#1b5e20]">{activeFilterInfo.title}</div>
                     <div className="text-[13px] text-[#2e7d32] mt-1">{activeFilterInfo.description}</div>
+                    <div className="text-[12px] text-[#1b5e20] mt-1.5">
+                      Quantidade do indicador: {activeIndicatorValue}
+                    </div>
                     <div className="text-[12px] text-[#1b5e20] mt-1.5">
                       Exibindo {filteredTable.length} de {data.tabelaGerencial.length} linha(s).
                     </div>
