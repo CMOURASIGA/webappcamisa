@@ -9,10 +9,13 @@ export default function Form() {
   const [email, setEmail] = useState('');
   const [team, setTeam] = useState('');
   const [otherTeam, setOtherTeam] = useState('');
+  const [isSpecificReserveClient, setIsSpecificReserveClient] = useState(false);
+  const [reserveExceptionReason, setReserveExceptionReason] = useState('');
 
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [stockRows, setStockRows] = useState<StockOptionRow[]>([]);
   const [availableColors, setAvailableColors] = useState<string[]>(COLORS);
+  const [specificReserveColors, setSpecificReserveColors] = useState<string[]>([]);
   const [allowedExtensions, setAllowedExtensions] = useState(['pdf', 'jpg', 'jpeg', 'png']);
 
   const [items, setItems] = useState<ShirtItem[]>([
@@ -86,6 +89,7 @@ export default function Form() {
 
         setStockRows(data.stockOptions.rows || []);
         setAvailableColors(data.stockOptions.colors?.length ? data.stockOptions.colors : COLORS);
+        setSpecificReserveColors(data.stockOptions.specificReserveColors?.length ? data.stockOptions.specificReserveColors : []);
         setAllowedExtensions(data.allowedExtensions?.length ? data.allowedExtensions : ['pdf', 'jpg', 'jpeg', 'png']);
         setIsLoadingStock(false);
       } catch (error) {
@@ -179,10 +183,33 @@ export default function Form() {
 
   const isSizeAvailable = (color: string, size: string) => {
     if (!color || !size) return false;
+    if (isSpecificReserveClient && specificReserveColors.length && !specificReserveColors.includes(color)) return false;
     return stockRows.some(
-      (row) => row.cor === color && row.tamanho === size && Number(row.disponivel) > 0,
+      (row) =>
+        row.cor === color &&
+        row.tamanho === size &&
+        (
+          isSpecificReserveClient
+            ? (Number(row.reserva) > 0 || Number(row.disponivel) > 0)
+            : Number(row.disponivel) > 0
+        ),
     );
   };
+
+  const colorsForCurrentMode =
+    isSpecificReserveClient && specificReserveColors.length
+      ? specificReserveColors
+      : availableColors;
+
+  useEffect(() => {
+    if (!isSpecificReserveClient || !specificReserveColors.length) return;
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!item.color || specificReserveColors.includes(item.color)) return item;
+        return { ...item, color: '', size: '' };
+      }),
+    );
+  }, [isSpecificReserveClient, specificReserveColors]);
 
   const totalQuantity = items.reduce((acc, curr) => acc + curr.quantity, 0);
   const totalPrice = totalQuantity * PRICE;
@@ -243,6 +270,8 @@ export default function Form() {
         nomeCompleto: name.trim(),
         email: email.trim(),
         equipe: team === 'Outro' ? otherTeam.trim() : team,
+        clienteEspecificoReserva: isSpecificReserveClient,
+        motivoExcecaoReserva: reserveExceptionReason.trim(),
         items: items.map((item) => ({
           tamanho: item.size,
           cor: item.color,
@@ -274,6 +303,8 @@ export default function Form() {
       setEmail('');
       setTeam('');
       setOtherTeam('');
+      setIsSpecificReserveClient(false);
+      setReserveExceptionReason('');
       setProofFile(null);
       setItems([
         {
@@ -428,6 +459,31 @@ export default function Form() {
                 />
               </div>
             )}
+
+            <div className="flex flex-col gap-2 mb-4">
+              <div
+                onClick={() => setIsSpecificReserveClient((prev) => !prev)}
+                className="flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <span className="text-[12px] font-medium text-text-main">Cliente especifico (abater da reserva 72)</span>
+                <div className={`w-8 h-5 rounded-full relative transition-colors ${isSpecificReserveClient ? 'bg-primary' : 'bg-[#E0E4E9]'}`}>
+                  <div className={`absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all ${isSpecificReserveClient ? 'left-[14px]' : 'left-[2px]'}`} />
+                </div>
+              </div>
+            </div>
+
+            {isSpecificReserveClient && (
+              <div className="flex flex-col gap-2 mb-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <label className="text-[12px] font-bold text-text-main uppercase">Motivo para usar saldo disponivel (se faltar reserva)</label>
+                <input
+                  type="text"
+                  value={reserveExceptionReason}
+                  onChange={(e) => setReserveExceptionReason(e.target.value)}
+                  placeholder="Ex.: tamanho sem reserva, autorizado pela coordenacao"
+                  className="w-full p-2.5 rounded-[8px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
+                />
+              </div>
+            )}
           </section>
 
           <section className="bg-white p-4 rounded-[12px] border border-border-color mb-4">
@@ -493,7 +549,7 @@ export default function Form() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2 mt-1">
-                        {availableColors.map((c) => (
+                        {colorsForCurrentMode.map((c) => (
                           <button
                             key={c}
                             type="button"

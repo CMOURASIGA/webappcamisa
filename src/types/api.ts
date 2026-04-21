@@ -12,6 +12,7 @@ export interface BootstrapData {
   allowedExtensions: string[];
   stockOptions: {
     colors: string[];
+    specificReserveColors?: string[];
     rows: StockOptionRow[];
   };
 }
@@ -28,6 +29,8 @@ export interface SubmitOrderPayload {
   nomeCompleto: string;
   email: string;
   equipe: string;
+  clienteEspecificoReserva?: boolean;
+  motivoExcecaoReserva?: string;
   items: SubmitOrderItem[];
   proofFile: {
     name: string;
