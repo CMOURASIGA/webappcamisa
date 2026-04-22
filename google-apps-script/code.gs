@@ -706,6 +706,7 @@ function processOrderItems_(items, options) {
 
   stockRows.forEach(row => {
     stockSheet.getRange(row.rowIndex, idxQtd + 1).setValue(row.quantidade);
+    stockSheet.getRange(row.rowIndex, idxReserva + 1).setValue(row.reserva);
   });
 
   return {
@@ -1226,7 +1227,7 @@ function ensureHeaders_(sheet, requiredHeaders) {
 }
 
 function setValueByHeader_(rowArray, headers, headerName, value) {
-  const idx = headers.indexOf(headerName);
+  const idx = findHeaderIndex_(headers, [headerName]);
   if (idx >= 0) rowArray[idx] = value;
 }
 
