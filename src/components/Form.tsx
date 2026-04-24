@@ -6,6 +6,7 @@ import type { StockOptionRow } from '../types/api';
 
 type FormShirtItem = ShirtItem & {
   requestReplenishmentForColor: boolean;
+  unavailableSizeRequested: string;
 };
 
 export default function Form() {
@@ -31,6 +32,7 @@ export default function Form() {
       acceptAlternativeSize: false,
       acceptAlternativeColor: false,
       requestReplenishmentForColor: false,
+      unavailableSizeRequested: '',
     },
   ]);
 
@@ -175,6 +177,7 @@ export default function Form() {
         acceptAlternativeSize: false,
         acceptAlternativeColor: false,
         requestReplenishmentForColor: false,
+        unavailableSizeRequested: '',
       },
     ]);
   };
@@ -187,24 +190,17 @@ export default function Form() {
     setItems(items.map((i) => (i.id === id ? { ...i, ...updates } : i)));
   };
 
-  const hasAvailableSizesForColor = (color: string) => {
+  const colorHasUnavailableSizes = (color: string) => {
     if (!color) return false;
-    return SIZES.some((size) => isSizeAvailable(color, size));
-  };
-
-  const isColorWithoutAvailableSizes = (color: string) => {
-    if (!color) return false;
-    return !hasAvailableSizesForColor(color);
+    return SIZES.some((size) => !isSizeAvailable(color, size));
   };
 
   const handleColorSelect = (id: string, color: string) => {
-    const noSizesAvailable = isColorWithoutAvailableSizes(color);
     updateItem(id, {
       color,
       size: '',
       requestReplenishmentForColor: false,
-      acceptAlternativeSize: noSizesAvailable ? false : undefined,
-      acceptAlternativeColor: noSizesAvailable ? false : undefined,
+      unavailableSizeRequested: '',
     });
   };
 
@@ -233,7 +229,7 @@ export default function Form() {
     setItems((prev) =>
       prev.map((item) => {
         if (!item.color || specificReserveColors.includes(item.color)) return item;
-        return { ...item, color: '', size: '', requestReplenishmentForColor: false };
+        return { ...item, color: '', size: '', requestReplenishmentForColor: false, unavailableSizeRequested: '' };
       }),
     );
   }, [isSpecificReserveClient, specificReserveColors]);
@@ -273,13 +269,19 @@ export default function Form() {
 
     for (let i = 0; i < items.length; i++) {
       if (!items[i].color) return setMessage({ type: 'error', text: `Selecione a cor do item ${i + 1}.` });
-      if (isColorWithoutAvailableSizes(items[i].color) && !items[i].requestReplenishmentForColor) {
+      if (items[i].unavailableSizeRequested && !items[i].requestReplenishmentForColor) {
         return setMessage({
           type: 'error',
-          text: `Item ${i + 1}: essa cor está sem disponibilidade. Escolha continuar para reposicao ou troque a cor.`,
+          text: `Item ${i + 1}: confirme se deseja reposicao para o tamanho indisponivel ou escolha outra cor.`,
         });
       }
       if (!items[i].size) return setMessage({ type: 'error', text: `Selecione o tamanho do item ${i + 1}.` });
+      if (items[i].requestReplenishmentForColor && isSizeAvailable(items[i].color, items[i].size)) {
+        return setMessage({
+          type: 'error',
+          text: `Item ${i + 1}: no modo reposicao, selecione um tamanho indisponivel da cor escolhida.`,
+        });
+      }
       if (items[i].quantity <= 0) {
         return setMessage({ type: 'error', text: `Quantidade invalida no item ${i + 1}.` });
       }
@@ -348,6 +350,7 @@ export default function Form() {
           acceptAlternativeSize: false,
           acceptAlternativeColor: false,
           requestReplenishmentForColor: false,
+          unavailableSizeRequested: '',
         },
       ]);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -600,10 +603,10 @@ export default function Form() {
                       </div>
                     </div>
 
-                    {isColorWithoutAvailableSizes(item.color) && !item.requestReplenishmentForColor && (
+                    {item.unavailableSizeRequested && !item.requestReplenishmentForColor && (
                       <div className="rounded-[10px] border border-[#fde68a] bg-[#fffbeb] p-3 mb-4">
                         <p className="m-0 text-[12px] text-[#854d0e] font-semibold">
-                          Essa cor está sem tamanhos disponíveis agora. Deseja continuar mesmo assim para solicitar reposição?
+                          O tamanho {item.unavailableSizeRequested} da cor {item.color} esta indisponivel. Deseja continuar para solicitar reposicao?
                         </p>
                         <div className="flex gap-2 mt-3">
                           <button
@@ -611,9 +614,11 @@ export default function Form() {
                             onClick={() =>
                               updateItem(item.id, {
                                 requestReplenishmentForColor: true,
-                                size: '',
+                                size: item.unavailableSizeRequested,
+                                quantity: 1,
                                 acceptAlternativeSize: false,
                                 acceptAlternativeColor: false,
+                                unavailableSizeRequested: '',
                               })
                             }
                             className="flex-1 border-none rounded-[8px] bg-primary text-white py-2 text-[12px] font-bold cursor-pointer"
@@ -629,6 +634,7 @@ export default function Form() {
                                 requestReplenishmentForColor: false,
                                 acceptAlternativeSize: false,
                                 acceptAlternativeColor: false,
+                                unavailableSizeRequested: '',
                               })
                             }
                             className="flex-1 border border-border-color rounded-[8px] bg-white text-text-main py-2 text-[12px] font-bold cursor-pointer"
@@ -639,10 +645,10 @@ export default function Form() {
                       </div>
                     )}
 
-                    {isColorWithoutAvailableSizes(item.color) && item.requestReplenishmentForColor && (
+                    {item.requestReplenishmentForColor && (
                       <div className="rounded-[10px] border border-[#bfdbfe] bg-[#eff6ff] p-3 mb-4">
                         <p className="m-0 text-[12px] text-[#1d4ed8] font-semibold">
-                          Informe o tamanho e a quantidade desejada. Este item seguirá para reposição.
+                          Informe a quantidade desejada para o tamanho indisponivel selecionado. Este item seguira para reposicao.
                         </p>
                         <button
                           type="button"
@@ -653,6 +659,7 @@ export default function Form() {
                               requestReplenishmentForColor: false,
                               acceptAlternativeSize: false,
                               acceptAlternativeColor: false,
+                              unavailableSizeRequested: '',
                             })
                           }
                           className="mt-2 bg-transparent border-0 p-0 text-[12px] text-[#1d4ed8] underline cursor-pointer"
@@ -666,22 +673,27 @@ export default function Form() {
                       <label className="text-[11px] text-text-muted font-semibold uppercase">Tamanho</label>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {SIZES.map((s) => {
-                          const isAvail = item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
-                            ? true
-                            : isSizeAvailable(item.color, s);
+                          const isAvail = isSizeAvailable(item.color, s);
+                          const isSelectable = item.requestReplenishmentForColor ? !isAvail : isAvail;
                           return (
                             <button
                               key={s}
                               type="button"
                               onClick={() => {
-                                if (isAvail) updateItem(item.id, { size: s });
+                                if (isSelectable) {
+                                  updateItem(item.id, { size: s, unavailableSizeRequested: '' });
+                                  return;
+                                }
+                                if (!item.requestReplenishmentForColor && item.color && colorHasUnavailableSizes(item.color)) {
+                                  updateItem(item.id, { unavailableSizeRequested: s });
+                                }
                               }}
                               className={`px-3 py-1.5 border rounded-[20px] text-[12px] font-semibold transition-colors ${
                                 item.size === s
                                   ? 'bg-primary border-primary text-white cursor-pointer'
-                                  : isAvail
+                                  : isSelectable
                                     ? 'bg-white border-border-color text-text-main cursor-pointer hover:bg-gray-50'
-                                    : 'opacity-30 line-through cursor-not-allowed border-border-color text-text-main bg-white'
+                                    : 'opacity-30 line-through cursor-pointer border-border-color text-text-main bg-white'
                               }`}
                             >
                               {s}
@@ -711,11 +723,11 @@ export default function Form() {
 
                     <div
                       onClick={() => {
-                        if (item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)) return;
+                        if (item.requestReplenishmentForColor) return;
                         updateItem(item.id, { acceptAlternativeSize: !item.acceptAlternativeSize });
                       }}
                       className={`flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed mb-2 flex-wrap transition-colors ${
-                        item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
+                        item.requestReplenishmentForColor
                           ? 'opacity-60 cursor-not-allowed bg-gray-50'
                           : 'cursor-pointer hover:bg-gray-50'
                       }`}
@@ -728,11 +740,11 @@ export default function Form() {
 
                     <div
                       onClick={() => {
-                        if (item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)) return;
+                        if (item.requestReplenishmentForColor) return;
                         updateItem(item.id, { acceptAlternativeColor: !item.acceptAlternativeColor });
                       }}
                       className={`flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed flex-wrap transition-colors ${
-                        item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
+                        item.requestReplenishmentForColor
                           ? 'opacity-60 cursor-not-allowed bg-gray-50'
                           : 'cursor-pointer hover:bg-gray-50'
                       }`}
