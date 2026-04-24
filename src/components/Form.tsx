@@ -4,6 +4,10 @@ import { TEAMS, COLORS, SIZES, MOCK_STOCK, ShirtItem } from '../data/mockData';
 import { fetchBootstrapData, isMockApiEnabled, submitOrder } from '../services/api';
 import type { StockOptionRow } from '../types/api';
 
+type FormShirtItem = ShirtItem & {
+  requestReplenishmentForColor: boolean;
+};
+
 export default function Form() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -18,7 +22,7 @@ export default function Form() {
   const [specificReserveColors, setSpecificReserveColors] = useState<string[]>([]);
   const [allowedExtensions, setAllowedExtensions] = useState(['pdf', 'jpg', 'jpeg', 'png']);
 
-  const [items, setItems] = useState<ShirtItem[]>([
+  const [items, setItems] = useState<FormShirtItem[]>([
     {
       id: 'item-1',
       color: '',
@@ -26,6 +30,7 @@ export default function Form() {
       quantity: 1,
       acceptAlternativeSize: false,
       acceptAlternativeColor: false,
+      requestReplenishmentForColor: false,
     },
   ]);
 
@@ -169,6 +174,7 @@ export default function Form() {
         quantity: 1,
         acceptAlternativeSize: false,
         acceptAlternativeColor: false,
+        requestReplenishmentForColor: false,
       },
     ]);
   };
@@ -177,8 +183,29 @@ export default function Form() {
     setItems(items.filter((i) => i.id !== id));
   };
 
-  const updateItem = (id: string, updates: Partial<ShirtItem>) => {
+  const updateItem = (id: string, updates: Partial<FormShirtItem>) => {
     setItems(items.map((i) => (i.id === id ? { ...i, ...updates } : i)));
+  };
+
+  const hasAvailableSizesForColor = (color: string) => {
+    if (!color) return false;
+    return SIZES.some((size) => isSizeAvailable(color, size));
+  };
+
+  const isColorWithoutAvailableSizes = (color: string) => {
+    if (!color) return false;
+    return !hasAvailableSizesForColor(color);
+  };
+
+  const handleColorSelect = (id: string, color: string) => {
+    const noSizesAvailable = isColorWithoutAvailableSizes(color);
+    updateItem(id, {
+      color,
+      size: '',
+      requestReplenishmentForColor: false,
+      acceptAlternativeSize: noSizesAvailable ? false : undefined,
+      acceptAlternativeColor: noSizesAvailable ? false : undefined,
+    });
   };
 
   const isSizeAvailable = (color: string, size: string) => {
@@ -206,7 +233,7 @@ export default function Form() {
     setItems((prev) =>
       prev.map((item) => {
         if (!item.color || specificReserveColors.includes(item.color)) return item;
-        return { ...item, color: '', size: '' };
+        return { ...item, color: '', size: '', requestReplenishmentForColor: false };
       }),
     );
   }, [isSpecificReserveClient, specificReserveColors]);
@@ -246,6 +273,12 @@ export default function Form() {
 
     for (let i = 0; i < items.length; i++) {
       if (!items[i].color) return setMessage({ type: 'error', text: `Selecione a cor do item ${i + 1}.` });
+      if (isColorWithoutAvailableSizes(items[i].color) && !items[i].requestReplenishmentForColor) {
+        return setMessage({
+          type: 'error',
+          text: `Item ${i + 1}: essa cor está sem disponibilidade. Escolha continuar para reposicao ou troque a cor.`,
+        });
+      }
       if (!items[i].size) return setMessage({ type: 'error', text: `Selecione o tamanho do item ${i + 1}.` });
       if (items[i].quantity <= 0) {
         return setMessage({ type: 'error', text: `Quantidade invalida no item ${i + 1}.` });
@@ -314,6 +347,7 @@ export default function Form() {
           quantity: 1,
           acceptAlternativeSize: false,
           acceptAlternativeColor: false,
+          requestReplenishmentForColor: false,
         },
       ]);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -553,7 +587,7 @@ export default function Form() {
                           <button
                             key={c}
                             type="button"
-                            onClick={() => updateItem(item.id, { color: c, size: '' })}
+                            onClick={() => handleColorSelect(item.id, c)}
                             className={`px-3 py-1.5 border rounded-[20px] text-[12px] font-semibold cursor-pointer transition-colors ${
                               item.color === c
                                 ? 'bg-primary border-primary text-white'
@@ -566,11 +600,75 @@ export default function Form() {
                       </div>
                     </div>
 
+                    {isColorWithoutAvailableSizes(item.color) && !item.requestReplenishmentForColor && (
+                      <div className="rounded-[10px] border border-[#fde68a] bg-[#fffbeb] p-3 mb-4">
+                        <p className="m-0 text-[12px] text-[#854d0e] font-semibold">
+                          Essa cor está sem tamanhos disponíveis agora. Deseja continuar mesmo assim para solicitar reposição?
+                        </p>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateItem(item.id, {
+                                requestReplenishmentForColor: true,
+                                size: '',
+                                acceptAlternativeSize: false,
+                                acceptAlternativeColor: false,
+                              })
+                            }
+                            className="flex-1 border-none rounded-[8px] bg-primary text-white py-2 text-[12px] font-bold cursor-pointer"
+                          >
+                            Continuar nessa cor
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateItem(item.id, {
+                                color: '',
+                                size: '',
+                                requestReplenishmentForColor: false,
+                                acceptAlternativeSize: false,
+                                acceptAlternativeColor: false,
+                              })
+                            }
+                            className="flex-1 border border-border-color rounded-[8px] bg-white text-text-main py-2 text-[12px] font-bold cursor-pointer"
+                          >
+                            Escolher outra cor
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {isColorWithoutAvailableSizes(item.color) && item.requestReplenishmentForColor && (
+                      <div className="rounded-[10px] border border-[#bfdbfe] bg-[#eff6ff] p-3 mb-4">
+                        <p className="m-0 text-[12px] text-[#1d4ed8] font-semibold">
+                          Informe o tamanho e a quantidade desejada. Este item seguirá para reposição.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateItem(item.id, {
+                              color: '',
+                              size: '',
+                              requestReplenishmentForColor: false,
+                              acceptAlternativeSize: false,
+                              acceptAlternativeColor: false,
+                            })
+                          }
+                          className="mt-2 bg-transparent border-0 p-0 text-[12px] text-[#1d4ed8] underline cursor-pointer"
+                        >
+                          Voltar e escolher outra cor
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex flex-col gap-1.5 mb-4 mt-3">
                       <label className="text-[11px] text-text-muted font-semibold uppercase">Tamanho</label>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {SIZES.map((s) => {
-                          const isAvail = isSizeAvailable(item.color, s);
+                          const isAvail = item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
+                            ? true
+                            : isSizeAvailable(item.color, s);
                           return (
                             <button
                               key={s}
@@ -612,8 +710,15 @@ export default function Form() {
                     </div>
 
                     <div
-                      onClick={() => updateItem(item.id, { acceptAlternativeSize: !item.acceptAlternativeSize })}
-                      className="flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed mb-2 flex-wrap cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => {
+                        if (item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)) return;
+                        updateItem(item.id, { acceptAlternativeSize: !item.acceptAlternativeSize });
+                      }}
+                      className={`flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed mb-2 flex-wrap transition-colors ${
+                        item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
+                          ? 'opacity-60 cursor-not-allowed bg-gray-50'
+                          : 'cursor-pointer hover:bg-gray-50'
+                      }`}
                     >
                       <span className="text-[12px] font-medium text-text-main">Aceita tamanho alternativo?</span>
                       <div className={`w-8 h-5 rounded-full relative transition-colors ${item.acceptAlternativeSize ? 'bg-primary' : 'bg-[#E0E4E9]'}`}>
@@ -622,8 +727,15 @@ export default function Form() {
                     </div>
 
                     <div
-                      onClick={() => updateItem(item.id, { acceptAlternativeColor: !item.acceptAlternativeColor })}
-                      className="flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed flex-wrap cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => {
+                        if (item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)) return;
+                        updateItem(item.id, { acceptAlternativeColor: !item.acceptAlternativeColor });
+                      }}
+                      className={`flex justify-between items-center p-3 rounded-[8px] border border-border-color border-dashed flex-wrap transition-colors ${
+                        item.requestReplenishmentForColor && isColorWithoutAvailableSizes(item.color)
+                          ? 'opacity-60 cursor-not-allowed bg-gray-50'
+                          : 'cursor-pointer hover:bg-gray-50'
+                      }`}
                     >
                       <span className="text-[12px] font-medium text-text-main">Aceita outra cor?</span>
                       <div className={`w-8 h-5 rounded-full relative transition-colors ${item.acceptAlternativeColor ? 'bg-primary' : 'bg-[#E0E4E9]'}`}>

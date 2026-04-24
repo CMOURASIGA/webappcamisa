@@ -199,6 +199,7 @@ export default function Dashboard() {
   const [searchName, setSearchName] = useState('');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
+  const [colorFilter, setColorFilter] = useState('');
   const lastPointerToggleAtRef = useRef(0);
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
@@ -244,6 +245,20 @@ export default function Dashboard() {
     if (!filterIndicator) return data.tabelaGerencial;
     return INDICATOR_CONFIG[filterIndicator].filterRows(data.tabelaGerencial);
   }, [data, filterIndicator]);
+
+  const availableColors = useMemo(() => {
+    const rows = data?.tabelaGerencial ?? [];
+    const colors = rows
+      .map((row) => row.cor)
+      .filter((color): color is string => typeof color === 'string' && color.trim().length > 0);
+    return [...new Set<string>(colors)]
+      .sort((a: string, b: string) => a.localeCompare(b, 'pt-BR'));
+  }, [data]);
+
+  const filteredTableByColor = useMemo(() => {
+    if (!colorFilter) return filteredTable;
+    return filteredTable.filter((row) => normalizeColor(row.cor) === normalizeColor(colorFilter));
+  }, [filteredTable, colorFilter]);
 
   const indicatorValues = useMemo(() => {
     const rows = data?.tabelaGerencial ?? [];
@@ -481,6 +496,23 @@ export default function Dashboard() {
                 <h2 className="m-0 text-[18px] font-bold text-text-main">Detalhamento por tamanho e cor</h2>
                 <p className="mt-1.5 mb-0 text-text-muted text-[13px]">Resumo consolidado do estoque e das solicitacoes registradas.</p>
               </div>
+              <div className="p-4 md:px-[20px] md:pt-4 md:pb-3 border-b border-border-color bg-[#FCFCFC]">
+                <div className="flex flex-col gap-1.5 max-w-[280px]">
+                  <label className="text-[12px] text-text-muted font-semibold uppercase">Filtrar cor</label>
+                  <select
+                    value={colorFilter}
+                    onChange={(e) => setColorFilter(e.target.value)}
+                    className="w-full p-2.5 rounded-[8px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Todas as cores</option>
+                    {availableColors.map((color) => (
+                      <option key={color} value={color}>
+                        {color}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[980px] border-collapse text-[14px]">
@@ -498,7 +530,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTable.map((row, idx) => (
+                    {filteredTableByColor.map((row, idx) => (
                       <tr key={`${row.tamanho}-${row.cor}-${idx}`} className="hover:bg-[#FAFAFA] transition-colors border-b border-border-color last:border-0">
                         <td className="p-4 font-medium">{row.tamanho}</td>
                         <td className="p-4">{row.cor}</td>
@@ -511,7 +543,7 @@ export default function Dashboard() {
                         <td className="p-4 text-text-muted">{row.reposicoes}</td>
                       </tr>
                     ))}
-                    {filteredTable.length === 0 && (
+                    {filteredTableByColor.length === 0 && (
                       <tr>
                         <td colSpan={9} className="p-6 text-center text-text-muted">
                           Nenhum registro encontrado para o filtro selecionado.
