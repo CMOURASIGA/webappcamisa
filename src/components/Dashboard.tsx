@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MOCK_STOCK } from '../data/mockData';
-import { fetchDashboardData, isMockApiEnabled, markOrderDelivered } from '../services/api';
+import { fetchDashboardData, isMockApiEnabled, markOrderDelivered, settleReplenishment } from '../services/api';
 import type { DashboardData, DashboardOrder } from '../types/api';
 
 function buildMockDashboardData(): DashboardData {
   const totalFisico = MOCK_STOCK.reduce((acc, curr) => acc + curr.quantidade, 0);
   const totalReserva = MOCK_STOCK.reduce((acc, curr) => acc + curr.reserva, 0);
   const totalDisponivel = MOCK_STOCK.reduce((acc, curr) => acc + curr.disponivel, 0);
+  const totalDisponivelReal = MOCK_STOCK.reduce((acc, curr) => acc + Math.max(curr.quantidade - curr.reserva, 0), 0);
   const totalReservados = MOCK_STOCK.reduce((acc, curr) => acc + curr.reservados, 0);
 
   const totalBrancaDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Branca').reduce((acc, curr) => acc + curr.disponivel, 0);
@@ -15,6 +16,9 @@ function buildMockDashboardData(): DashboardData {
 
   const totalAlternativa = MOCK_STOCK.reduce((acc, curr) => acc + curr.alternativas, 0);
   const totalReposicao = MOCK_STOCK.reduce((acc, curr) => acc + curr.reposicoes, 0);
+  const totalCamisasAEntregar = 2;
+  const totalCamisasEntregues = 0;
+  const totalCamisasPendentesEntrega = 2;
 
   return {
     logoUrl: '',
@@ -24,12 +28,17 @@ function buildMockDashboardData(): DashboardData {
       totalFisico,
       totalReserva,
       totalDisponivel,
+      totalDisponivelReal,
+      totalDisponivelGap: totalDisponivelReal - totalDisponivel,
       totalBrancaDisponivel,
       totalPretaDisponivel,
       totalAzulDisponivel,
       totalReservados,
       totalAlternativa,
       totalReposicao,
+      totalCamisasAEntregar,
+      totalCamisasEntregues,
+      totalCamisasPendentesEntrega,
     },
     tabelaGerencial: MOCK_STOCK.map((row) => ({
       tamanho: row.tamanho,
@@ -54,8 +63,8 @@ function buildMockDashboardData(): DashboardData {
         statusEntrega: 'PENDENTE',
         entregueEm: '',
         items: [
-          { tamanho: 'P', cor: 'Branca', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
-          { tamanho: 'M', cor: 'Azul', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
+          { ordemItem: 1, tamanho: 'P', cor: 'Branca', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
+          { ordemItem: 2, tamanho: 'M', cor: 'Azul', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '' },
         ],
       },
       {
@@ -69,7 +78,7 @@ function buildMockDashboardData(): DashboardData {
         statusEntrega: 'ENTREGUE',
         entregueEm: '16/04/2026 18:42:00',
         items: [
-          { tamanho: 'GG', cor: 'Preta', quantidadeSolicitada: 2, quantidadeAtendida: 0, statusItem: 'SUGERIR ALTERNATIVA', alternativaSugerida: 'XG | Preta' },
+          { ordemItem: 1, tamanho: 'GG', cor: 'Preta', quantidadeSolicitada: 2, quantidadeAtendida: 0, statusItem: 'SUGERIR ALTERNATIVA', alternativaSugerida: 'XG | Preta' },
         ],
       },
     ],
@@ -80,12 +89,17 @@ type FilterIndicator =
   | 'totalFisico'
   | 'totalReserva'
   | 'totalDisponivel'
+  | 'totalDisponivelReal'
+  | 'totalDisponivelGap'
   | 'totalBrancaDisponivel'
   | 'totalPretaDisponivel'
   | 'totalAzulDisponivel'
   | 'totalReservados'
   | 'totalAlternativa'
   | 'totalReposicao'
+  | 'totalCamisasAEntregar'
+  | 'totalCamisasEntregues'
+  | 'totalCamisasPendentesEntrega'
   | null;
 
 type IndicatorKey = Exclude<FilterIndicator, null>;
@@ -117,12 +131,17 @@ const INDICATOR_ORDER: IndicatorKey[] = [
   'totalFisico',
   'totalReserva',
   'totalDisponivel',
+  'totalDisponivelReal',
+  'totalDisponivelGap',
   'totalReservados',
   'totalBrancaDisponivel',
   'totalPretaDisponivel',
   'totalAzulDisponivel',
   'totalAlternativa',
   'totalReposicao',
+  'totalCamisasAEntregar',
+  'totalCamisasEntregues',
+  'totalCamisasPendentesEntrega',
 ];
 
 const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
@@ -146,6 +165,20 @@ const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
     description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
     filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
     getValue: (rows) => sumBy(rows, (row) => row.disponivel),
+  },
+  totalDisponivelReal: {
+    label: 'Disponivel Real',
+    title: 'Disponivel Real (Quantidade - Reserva)',
+    description: 'Saldo calculado em tempo real pela regra: Quantidade - Reserva Brinde.',
+    filterRows: (rows) => rows.filter((row) => (row.quantidade - row.reserva) !== 0),
+    getValue: (rows) => sumBy(rows, (row) => row.quantidade - row.reserva),
+  },
+  totalDisponivelGap: {
+    label: 'Gap Real x Informado',
+    title: 'Gap de Disponivel',
+    description: 'Diferenca entre disponivel real calculado e o disponivel informado na planilha.',
+    filterRows: (rows) => rows.filter((row) => (row.quantidade - row.reserva - row.disponivel) !== 0),
+    getValue: (rows) => sumBy(rows, (row) => (row.quantidade - row.reserva - row.disponivel)),
   },
   totalBrancaDisponivel: {
     label: 'Disponivel Branca',
@@ -189,6 +222,27 @@ const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
     filterRows: (rows) => rows.filter((row) => row.reposicoes > 0),
     getValue: (rows) => sumBy(rows, (row) => row.reposicoes),
   },
+  totalCamisasAEntregar: {
+    label: 'Camisas a Entregar',
+    title: 'Camisas a Entregar',
+    description: 'Total de camisas já atendidas (Qtd Atendida) e aguardando fluxo de entrega.',
+    filterRows: (rows) => rows,
+    getValue: () => 0,
+  },
+  totalCamisasEntregues: {
+    label: 'Camisas Entregues',
+    title: 'Camisas Entregues',
+    description: 'Total de camisas atendidas em pedidos marcados como entregues.',
+    filterRows: (rows) => rows,
+    getValue: () => 0,
+  },
+  totalCamisasPendentesEntrega: {
+    label: 'Falta Entregar',
+    title: 'Camisas Pendentes',
+    description: 'Total de camisas atendidas que ainda não foram marcadas como entregues.',
+    filterRows: (rows) => rows,
+    getValue: () => 0,
+  },
 };
 
 export default function Dashboard() {
@@ -198,6 +252,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'detalhamento' | 'pedidos'>('detalhamento');
   const [searchName, setSearchName] = useState('');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
+  const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
   const [colorFilter, setColorFilter] = useState('');
   const lastPointerToggleAtRef = useRef(0);
@@ -263,13 +318,21 @@ export default function Dashboard() {
   const indicatorValues = useMemo(() => {
     const rows = data?.tabelaGerencial ?? [];
     return INDICATOR_ORDER.reduce((acc, indicator) => {
-      acc[indicator] = INDICATOR_CONFIG[indicator].getValue(rows);
+      if (indicator === 'totalCamisasAEntregar') {
+        acc[indicator] = data?.indicadores.totalCamisasAEntregar ?? 0;
+      } else if (indicator === 'totalCamisasEntregues') {
+        acc[indicator] = data?.indicadores.totalCamisasEntregues ?? 0;
+      } else if (indicator === 'totalCamisasPendentesEntrega') {
+        acc[indicator] = data?.indicadores.totalCamisasPendentesEntrega ?? 0;
+      } else {
+        acc[indicator] = INDICATOR_CONFIG[indicator].getValue(rows);
+      }
       return acc;
     }, {} as Record<IndicatorKey, number>);
   }, [data]);
 
   const activeFilterInfo = filterIndicator ? INDICATOR_CONFIG[filterIndicator] : null;
-  const activeIndicatorValue = filterIndicator ? INDICATOR_CONFIG[filterIndicator].getValue(filteredTable) : null;
+  const activeIndicatorValue = filterIndicator ? indicatorValues[filterIndicator] : null;
 
   const toggleIndicatorFilter = (indicator: IndicatorKey) => {
     setFilterIndicator((prev) => (prev === indicator ? null : indicator));
@@ -346,6 +409,46 @@ export default function Dashboard() {
     }
   };
 
+  const handleSettleReplenishment = async (order: DashboardOrder, itemOrder: number) => {
+    setError(null);
+    const actionKey = `${order.requestId}-${itemOrder}`;
+    setSettlingKey(actionKey);
+
+    try {
+      if (isMockApiEnabled()) {
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pedidos: prev.pedidos.map((currentOrder) => {
+              if (currentOrder.requestId !== order.requestId) return currentOrder;
+              return {
+                ...currentOrder,
+                items: currentOrder.items.map((currentItem) =>
+                  currentItem.ordemItem === itemOrder && currentItem.statusItem === 'SOLICITAR REPOSIÇÃO'
+                    ? {
+                        ...currentItem,
+                        statusItem: 'REPOSIÇÃO QUITADA',
+                        quantidadeAtendida: currentItem.quantidadeSolicitada,
+                      }
+                    : currentItem,
+                ),
+              };
+            }),
+          };
+        });
+        return;
+      }
+
+      await settleReplenishment(order.requestId, itemOrder);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao quitar reposição.');
+    } finally {
+      setSettlingKey(null);
+    }
+  };
+
   const MetricCard = ({
     indicator,
     label,
@@ -374,7 +477,13 @@ export default function Dashboard() {
       }`}
     >
       <div className={`text-[14px] mb-2 font-medium ${isActive ? 'text-white/80' : 'text-text-muted'}`}>{label}</div>
-      <div className={`text-[28px] font-extrabold ${isActive ? 'text-white' : 'text-primary'}`}>{value}</div>
+      <div
+        className={`text-[28px] font-extrabold ${
+          isActive ? 'text-white' : value < 0 ? 'text-[#b91c1c]' : 'text-primary'
+        }`}
+      >
+        {value}
+      </div>
       {isActive && (
         <div className="mt-3 text-[11px] font-semibold text-white bg-white/20 px-2 py-1 rounded inline-block">
           ✓ Filtro ativo
@@ -465,6 +574,22 @@ export default function Dashboard() {
                   />
                 </div>
               ))}
+            </div>
+
+            <div className="rounded-[12px] border border-border-color bg-[#f8fafc] p-4 mb-6 text-[13px] text-text-main">
+              <div>
+                Os indicadores mostram dois cenários: <strong>Disponível Total</strong> (valor informado na planilha) e{' '}
+                <strong>Disponível Real</strong> (Quantidade - Reserva Brinde).
+              </div>
+              <div className="mt-1.5">
+                Gap Real x Informado:{' '}
+                <strong className={data.indicadores.totalDisponivelGap < 0 ? 'text-[#b91c1c]' : 'text-[#1d4ed8]'}>
+                  {data.indicadores.totalDisponivelGap}
+                </strong>
+                {data.indicadores.totalDisponivelGap < 0
+                  ? ' (negativo: necessidade de reposição para quitar)'
+                  : ' (positivo: real acima do informado).'}
+              </div>
             </div>
 
             {activeFilterInfo && (
@@ -632,7 +757,9 @@ export default function Dashboard() {
                               <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Sol.</th>
                               <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Atend.</th>
                               <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Status</th>
+                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Entrega Item</th>
                               <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Alternativa</th>
+                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Ação</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -642,7 +769,22 @@ export default function Dashboard() {
                                 <td className="p-2 border border-border-color">{item.quantidadeSolicitada}</td>
                                 <td className="p-2 border border-border-color">{item.quantidadeAtendida}</td>
                                 <td className="p-2 border border-border-color">{item.statusItem}</td>
+                                <td className="p-2 border border-border-color">{item.statusEntregaItem || '-'}</td>
                                 <td className="p-2 border border-border-color">{item.alternativaSugerida || '-'}</td>
+                                <td className="p-2 border border-border-color">
+                                  {item.statusItem === 'SOLICITAR REPOSIÇÃO' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSettleReplenishment(order, item.ordemItem || idx + 1)}
+                                      disabled={settlingKey === `${order.requestId}-${item.ordemItem || idx + 1}`}
+                                      className="border-none cursor-pointer bg-[#1d4ed8] text-white px-2.5 py-1.5 rounded-[6px] font-bold text-[11px] disabled:bg-[#94a3b8] disabled:cursor-not-allowed"
+                                    >
+                                      {settlingKey === `${order.requestId}-${item.ordemItem || idx + 1}` ? 'Quitando...' : 'Quitar reposição'}
+                                    </button>
+                                  ) : (
+                                    <span className="text-text-muted">-</span>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

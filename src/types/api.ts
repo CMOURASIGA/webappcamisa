@@ -62,12 +62,30 @@ export interface DashboardRow {
 }
 
 export interface DashboardOrderItem {
+  ordemItem: number;
   tamanho: string;
   cor: string;
   quantidadeSolicitada: number;
   quantidadeAtendida: number;
   statusItem: string;
   alternativaSugerida: string;
+  statusEntregaItem?: string;
+  entregueItemEm?: string;
+}
+
+export interface SettleReplenishmentResult {
+  success: boolean;
+  requestId: string;
+  ordemItem: number;
+  statusItem: string;
+  quantidadeRecebida: number;
+  estoqueAtualizado: {
+    tamanho: string;
+    cor: string;
+    quantidade: number;
+    disponivel: number;
+  };
+  updatedAt: string;
 }
 
 export interface DashboardOrder {
@@ -91,12 +109,17 @@ export interface DashboardData {
     totalFisico: number;
     totalReserva: number;
     totalDisponivel: number;
+    totalDisponivelReal: number;
+    totalDisponivelGap: number;
     totalBrancaDisponivel: number;
     totalPretaDisponivel: number;
     totalAzulDisponivel: number;
     totalReservados: number;
     totalAlternativa: number;
     totalReposicao: number;
+    totalCamisasAEntregar: number;
+    totalCamisasEntregues: number;
+    totalCamisasPendentesEntrega: number;
   };
   tabelaGerencial: DashboardRow[];
   pedidos: DashboardOrder[];

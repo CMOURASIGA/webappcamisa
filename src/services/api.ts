@@ -1,6 +1,7 @@
 import type {
   BootstrapData,
   DashboardData,
+  SettleReplenishmentResult,
   SubmitOrderPayload,
   SubmitOrderResult,
 } from '../types/api';
@@ -71,4 +72,16 @@ export async function fetchDashboardData(): Promise<DashboardData> {
 
 export async function markOrderDelivered(requestId: string): Promise<{ success: boolean; requestId: string; deliveredAt: string }> {
   return callGas<{ success: boolean; requestId: string; deliveredAt: string }>('markOrderDelivered', { requestId });
+}
+
+export async function settleReplenishment(
+  requestId: string,
+  ordemItem: number,
+  quantidadeRecebida?: number,
+): Promise<SettleReplenishmentResult> {
+  return callGas<SettleReplenishmentResult>('settleReplenishment', {
+    requestId,
+    ordemItem,
+    quantidadeRecebida,
+  });
 }

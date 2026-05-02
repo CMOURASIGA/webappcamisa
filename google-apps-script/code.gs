@@ -45,7 +45,7 @@ function doGet(e) {
     ok: true,
     mode: 'api',
     message: 'Web App ativo. Use POST com { action, payload }.',
-    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'markOrderDelivered', 'setupWebappEnvironment']
+    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'markOrderDelivered', 'settleReplenishment', 'setupWebappEnvironment', 'repairHistoricalItems']
   });
 }
 
@@ -74,8 +74,12 @@ function handleApiAction_(action, payload) {
         return jsonResponse_({ ok: true, data: getDashboardData() });
       case 'markOrderDelivered':
         return jsonResponse_({ ok: true, data: markOrderDelivered(payload) });
+      case 'settleReplenishment':
+        return jsonResponse_({ ok: true, data: settleReplenishment(payload) });
       case 'setupWebappEnvironment':
         return jsonResponse_({ ok: true, data: setupWebappEnvironment() });
+      case 'repairHistoricalItems':
+        return jsonResponse_({ ok: true, data: repairHistoricalItemsByCurrentRule_() });
       case 'submitOrder':
         return jsonResponse_({ ok: true, data: submitOrder(payload) });
       default:
@@ -124,6 +128,229 @@ function setupWebappEnvironment() {
     ok: true,
     message: 'Ambiente preparado com sucesso.'
   };
+}
+
+function repairHistoricalItems() {
+  return repairHistoricalItemsByCurrentRule_();
+}
+
+function repairHistoricalItemsByCurrentRule_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    ensureItemsSheet_();
+    ensureMainResponseSheet_();
+    ensureGerencialSheet_();
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
+    const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
+    const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
+
+    if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" nao encontrada.`);
+    if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" nao encontrada.`);
+    if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
+
+    const data = itemsSheet.getDataRange().getValues();
+    if (data.length < 2) {
+      updateGerencialSheet_();
+      return { success: true, updatedRows: 0, message: 'Sem linhas para ajustar.' };
+    }
+
+    const headers = data[0];
+    const idxStatus = findHeaderIndex_(headers, ['Status Item']);
+    const idxQtdSolicitada = findHeaderIndex_(headers, ['Quantidade Solicitada']);
+    const idxQtdAtendida = findHeaderIndex_(headers, ['Quantidade Atendida']);
+    const idxOrigem = findHeaderIndex_(headers, ['Origem Abatimento']);
+    const idxQtdReserva = findHeaderIndex_(headers, ['Quantidade da Reserva']);
+    const idxQtdDisponivel = findHeaderIndex_(headers, ['Quantidade do Disponível', 'Quantidade do Disponivel']);
+    const idxExcecao = findHeaderIndex_(headers, ['Exceção de Reserva', 'Excecao de Reserva']);
+    const idxMotivoExcecao = findHeaderIndex_(headers, ['Motivo Exceção Reserva', 'Motivo Excecao Reserva']);
+    const idxAbateGlobal = findHeaderIndex_(headers, ['Abate Reserva Global']);
+    const idxRequestId = findHeaderIndex_(headers, ['ID Solicitacao', 'ID Solicitação']);
+    const idxDataHora = findHeaderIndex_(headers, ['Data/Hora', 'Carimbo de data/hora']);
+    const idxOrdem = findHeaderIndex_(headers, ['Ordem Item']);
+    const idxTamanho = findHeaderIndex_(headers, ['Tamanho']);
+    const idxCor = findHeaderIndex_(headers, ['Cor']);
+    const idxQtdAntes = findHeaderIndex_(headers, ['Qtd Antes']);
+    const idxQtdDepois = findHeaderIndex_(headers, ['Qtd Depois']);
+    const idxObservacao = findHeaderIndex_(headers, ['Observação', 'Observacao']);
+
+    if ([idxStatus, idxQtdSolicitada, idxQtdAtendida, idxOrigem, idxQtdReserva, idxQtdDisponivel, idxExcecao, idxMotivoExcecao, idxAbateGlobal, idxDataHora, idxTamanho, idxCor].includes(-1)) {
+      throw new Error('A aba Itens Solicitação não contém todas as colunas necessárias para o reparo histórico.');
+    }
+
+    const stockData = stockSheet.getDataRange().getValues();
+    const stockHeaders = stockData[0] || [];
+    const idxStockTamanho = findHeaderIndex_(stockHeaders, ['Tamanho']);
+    const idxStockCor = findHeaderIndex_(stockHeaders, ['Cor']);
+    const idxStockQtd = findHeaderIndex_(stockHeaders, ['Quantidade']);
+    const idxStockReserva = findHeaderIndex_(stockHeaders, ['Reserva Brinde']);
+
+    if ([idxStockTamanho, idxStockCor, idxStockQtd, idxStockReserva].includes(-1)) {
+      throw new Error('A aba Estoque precisa conter Tamanho, Cor, Quantidade e Reserva Brinde.');
+    }
+
+    const stockState = {};
+    stockData.slice(1).forEach(row => {
+      const tamanho = String(row[idxStockTamanho] || '').trim();
+      const cor = String(row[idxStockCor] || '').trim();
+      if (!tamanho || !cor) return;
+      const key = `${normalizeText_(tamanho)}|${normalizeText_(cor)}`;
+      stockState[key] = {
+        quantidade: Number(row[idxStockQtd]) || 0,
+        reserva: Number(row[idxStockReserva]) || 0
+      };
+    });
+
+    let reserveGlobalRemaining = RESERVE_GLOBAL_INITIAL;
+    let updatedRows = 0;
+    const impactedRequests = {};
+    const orderedRows = data
+      .slice(1)
+      .map((row, i) => ({ row, rowIndex: i + 1 }))
+      .sort((a, b) => {
+        const d1 = idxDataHora >= 0 ? parseDateTimeSafe_(a.row[idxDataHora]).getTime() : 0;
+        const d2 = idxDataHora >= 0 ? parseDateTimeSafe_(b.row[idxDataHora]).getTime() : 0;
+        if (d1 !== d2) return d1 - d2;
+        const o1 = idxOrdem >= 0 ? Number(a.row[idxOrdem]) || 0 : 0;
+        const o2 = idxOrdem >= 0 ? Number(b.row[idxOrdem]) || 0 : 0;
+        if (o1 !== o2) return o1 - o2;
+        return a.rowIndex - b.rowIndex;
+      });
+
+    orderedRows.forEach(entry => {
+      const row = entry.row;
+      const status = String(row[idxStatus] || '').trim();
+      const qtdSolicitada = Number(row[idxQtdSolicitada]) || 0;
+      const excecao = normalizeText_(row[idxExcecao]) === 'SIM';
+      const requestId = idxRequestId >= 0 ? String(row[idxRequestId] || '').trim() : '';
+      const tamanho = String(row[idxTamanho] || '').trim();
+      const cor = String(row[idxCor] || '').trim();
+      const key = `${normalizeText_(tamanho)}|${normalizeText_(cor)}`;
+      const state = stockState[key] || { quantidade: 0, reserva: 0 };
+      const qtdAntes = state.quantidade;
+      const reservaAntes = state.reserva;
+      const disponivelLivreAntes = Math.max(qtdAntes - reservaAntes, 0);
+
+      const oldOrigem = String(row[idxOrigem] || '').trim();
+      const oldQtdReserva = Number(row[idxQtdReserva]) || 0;
+      const oldQtdDisponivel = Number(row[idxQtdDisponivel]) || 0;
+      const oldQtdAtendida = Number(row[idxQtdAtendida]) || 0;
+      const oldMotivo = String(row[idxMotivoExcecao] || '').trim();
+      const oldAbateGlobal = Number(row[idxAbateGlobal]) || 0;
+      const oldQtdAntes = idxQtdAntes >= 0 ? Number(row[idxQtdAntes]) || 0 : 0;
+      const oldQtdDepois = idxQtdDepois >= 0 ? Number(row[idxQtdDepois]) || 0 : 0;
+
+      let newOrigem = oldOrigem;
+      let newQtdReserva = oldQtdReserva;
+      let newQtdDisponivel = oldQtdDisponivel;
+      let newQtdAtendida = oldQtdAtendida;
+      let newMotivo = oldMotivo;
+      let newAbateGlobal = oldAbateGlobal;
+      let newStatus = status;
+      let newQtdAntes = qtdAntes;
+      let newQtdDepois = qtdAntes;
+      let newObservacao = idxObservacao >= 0 ? String(row[idxObservacao] || '').trim() : '';
+
+      if (qtdSolicitada <= 0) {
+        newStatus = 'SOLICITAR REPOSIÇÃO';
+        newOrigem = 'NAO_ABATIDO';
+        newQtdAtendida = 0;
+        newQtdReserva = 0;
+        newQtdDisponivel = 0;
+        newAbateGlobal = 0;
+      } else if (!excecao) {
+        newQtdReserva = 0;
+        newMotivo = '';
+        newAbateGlobal = 0;
+
+        if (disponivelLivreAntes >= qtdSolicitada) {
+          state.quantidade = Math.max(state.quantidade - qtdSolicitada, 0);
+          newStatus = 'RESERVADO';
+          newOrigem = 'DISPONIVEL';
+          newQtdAtendida = qtdSolicitada;
+          newQtdDisponivel = qtdSolicitada;
+          newQtdDepois = state.quantidade;
+          if (idxObservacao >= 0) newObservacao = 'Item reservado com sucesso (reprocessamento histórico).';
+        } else {
+          newStatus = 'SOLICITAR REPOSIÇÃO';
+          newOrigem = 'NAO_ABATIDO';
+          newQtdAtendida = 0;
+          newQtdDisponivel = 0;
+          if (idxObservacao >= 0) newObservacao = 'Sem saldo disponível suficiente no reprocessamento histórico.';
+        }
+      } else {
+        const podeReservarExcecao = reserveGlobalRemaining >= qtdSolicitada && reservaAntes >= qtdSolicitada;
+        if (podeReservarExcecao) {
+          state.quantidade = Math.max(state.quantidade - qtdSolicitada, 0);
+          state.reserva = Math.max(state.reserva - qtdSolicitada, 0);
+          reserveGlobalRemaining = Math.max(reserveGlobalRemaining - qtdSolicitada, 0);
+          newStatus = 'RESERVADO';
+          newOrigem = 'RESERVA';
+          newQtdAtendida = qtdSolicitada;
+          newQtdReserva = qtdSolicitada;
+          newQtdDisponivel = 0;
+          newAbateGlobal = qtdSolicitada;
+          newQtdDepois = state.quantidade;
+          if (idxObservacao >= 0) newObservacao = 'Item reservado com uso da reserva (reprocessamento histórico).';
+        } else {
+          newStatus = 'SOLICITAR REPOSIÇÃO';
+          newOrigem = 'NAO_ABATIDO';
+          newQtdAtendida = 0;
+          newQtdReserva = 0;
+          newQtdDisponivel = 0;
+          newAbateGlobal = 0;
+          if (idxObservacao >= 0) newObservacao = 'Sem saldo de reserva suficiente no reprocessamento histórico.';
+        }
+      }
+
+      const changed =
+        newStatus !== status ||
+        newOrigem !== oldOrigem ||
+        newQtdAtendida !== oldQtdAtendida ||
+        newQtdReserva !== oldQtdReserva ||
+        newQtdDisponivel !== oldQtdDisponivel ||
+        newMotivo !== oldMotivo ||
+        newAbateGlobal !== oldAbateGlobal ||
+        (idxQtdAntes >= 0 && newQtdAntes !== oldQtdAntes) ||
+        (idxQtdDepois >= 0 && newQtdDepois !== oldQtdDepois) ||
+        (idxObservacao >= 0 && newObservacao !== String(row[idxObservacao] || '').trim());
+
+      if (changed) {
+        row[idxStatus] = newStatus;
+        row[idxOrigem] = newOrigem;
+        row[idxQtdAtendida] = newQtdAtendida;
+        row[idxQtdReserva] = newQtdReserva;
+        row[idxQtdDisponivel] = newQtdDisponivel;
+        row[idxMotivoExcecao] = newMotivo;
+        row[idxAbateGlobal] = newAbateGlobal;
+        if (idxQtdAntes >= 0) row[idxQtdAntes] = newQtdAntes;
+        if (idxQtdDepois >= 0) row[idxQtdDepois] = newQtdDepois;
+        if (idxObservacao >= 0) row[idxObservacao] = newObservacao;
+        updatedRows += 1;
+        if (requestId) impactedRequests[requestId] = true;
+      }
+    });
+
+    itemsSheet.getRange(2, 1, data.length - 1, headers.length).setValues(data.slice(1));
+
+    Object.keys(impactedRequests).forEach(requestId => {
+      updateMainRequestStatusByItems_(requestId, responseSheet, itemsSheet);
+    });
+
+    updateGerencialSheet_();
+
+    return {
+      success: true,
+      updatedRows,
+      impactedRequests: Object.keys(impactedRequests).length,
+      message: 'Histórico ajustado conforme a regra atual.'
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getBootstrapData() {
@@ -238,6 +465,8 @@ function getDashboardData() {
   let totalFisico = 0;
   let totalReserva = 0;
   let totalDisponivel = 0;
+  let totalDisponivelReal = 0;
+  let totalBrancaDisponivel = 0;
   let totalPretaDisponivel = 0;
   let totalAzulDisponivel = 0;
 
@@ -247,11 +476,14 @@ function getDashboardData() {
     const quantidade = Number(row[idxQtd]) || 0;
     const reserva = Number(row[idxReserva]) || 0;
     const disponivel = Number(row[idxDisponivel]) || 0;
+    const disponivelReal = Math.max(quantidade - reserva, 0);
 
     totalFisico += quantidade;
     totalReserva += reserva;
     totalDisponivel += disponivel;
+    totalDisponivelReal += disponivelReal;
 
+    if (normalizeText_(cor) === 'BRANCA') totalBrancaDisponivel += disponivel;
     if (normalizeText_(cor) === 'PRETA') totalPretaDisponivel += disponivel;
     if (normalizeText_(cor) === 'AZUL') totalAzulDisponivel += disponivel;
 
@@ -272,9 +504,9 @@ function getDashboardData() {
   const idxItemQtdSolicitada = itemHeaders.indexOf('Quantidade Solicitada');
   const idxItemQtdAtendida = itemHeaders.indexOf('Quantidade Atendida');
   const idxItemStatus = itemHeaders.indexOf('Status Item');
+  const idxItemQtdReserva = findHeaderIndex_(itemHeaders, ['Quantidade da Reserva']);
   const idxItemAlternativa = itemHeaders.indexOf('Alternativa Sugerida');
   const idxItemOrigemAbatimento = findHeaderIndex_(itemHeaders, ['Origem Abatimento']);
-  const idxItemQtdReserva = findHeaderIndex_(itemHeaders, ['Quantidade da Reserva']);
   const idxItemQtdDisponivel = findHeaderIndex_(itemHeaders, ['Quantidade do Disponível', 'Quantidade do Disponivel']);
   const idxItemExcecaoReserva = findHeaderIndex_(itemHeaders, ['Exceção de Reserva', 'Excecao de Reserva']);
   const idxItemMotivoExcecao = findHeaderIndex_(itemHeaders, ['Motivo Exceção Reserva', 'Motivo Excecao Reserva']);
@@ -319,6 +551,15 @@ function getDashboardData() {
       statsMap[chave].reposicoes += qtdSolicitada;
       totalReposicao += qtdSolicitada;
     }
+
+    // Pedido especial: tudo que sai da reserva de brinde precisa entrar em reposicao.
+    if (status === 'RESERVADO' && idxItemQtdReserva >= 0) {
+      const qtdDaReserva = Number(row[idxItemQtdReserva]) || 0;
+      if (qtdDaReserva > 0) {
+        statsMap[chave].reposicoes += qtdDaReserva;
+        totalReposicao += qtdDaReserva;
+      }
+    }
   });
 
   const tabelaGerencial = tabelaEstoque
@@ -358,16 +599,43 @@ function getDashboardData() {
   const idxDataEntrega = findHeaderIndex_(responseHeaders, ['Data/Hora Entrega']);
 
   const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemOrdem = findHeaderIndex_(itemHeaders, ['Ordem Item']);
   const idxItemTamanho = findHeaderIndex_(itemHeaders, ['Tamanho']);
   const idxItemCor = findHeaderIndex_(itemHeaders, ['Cor']);
+  const idxItemStatusEntrega = findHeaderIndex_(itemHeaders, ['Status Entrega Item']);
+  const idxItemDataEntrega = findHeaderIndex_(itemHeaders, ['Data/Hora Entrega Item']);
+
+  const statusEntregaByRequestId = {};
+  responseData.slice(1).forEach(row => {
+    const reqId = idxRequestId >= 0 ? String(row[idxRequestId] || '').trim() : '';
+    if (!reqId) return;
+    const statusEntrega = idxStatusEntrega >= 0 ? String(row[idxStatusEntrega] || '').trim() : '';
+    statusEntregaByRequestId[reqId] = statusEntrega || 'PENDENTE';
+  });
+
+  let totalCamisasAEntregar = 0;
+  let totalCamisasEntregues = 0;
+  let totalCamisasPendentesEntrega = 0;
 
   const itemsByRequestId = {};
   itemsData.slice(1).forEach(row => {
     const requestId = idxItemRequestId >= 0 ? String(row[idxItemRequestId] || '').trim() : '';
     if (!requestId) return;
 
+    const qtdAtendida = Number(row[idxItemQtdAtendida]) || 0;
+    const statusEntregaRequest = statusEntregaByRequestId[requestId] || 'PENDENTE';
+    if (qtdAtendida > 0) {
+      totalCamisasAEntregar += qtdAtendida;
+      if (statusEntregaRequest === 'ENTREGUE') {
+        totalCamisasEntregues += qtdAtendida;
+      } else {
+        totalCamisasPendentesEntrega += qtdAtendida;
+      }
+    }
+
     if (!itemsByRequestId[requestId]) itemsByRequestId[requestId] = [];
     itemsByRequestId[requestId].push({
+      ordemItem: idxItemOrdem >= 0 ? Number(row[idxItemOrdem]) || 0 : 0,
       tamanho: idxItemTamanho >= 0 ? String(row[idxItemTamanho] || '').trim() : '',
       cor: idxItemCor >= 0 ? String(row[idxItemCor] || '').trim() : '',
       quantidadeSolicitada: Number(row[idxItemQtdSolicitada]) || 0,
@@ -379,7 +647,9 @@ function getDashboardData() {
       quantidadeDoDisponivel: idxItemQtdDisponivel >= 0 ? Number(row[idxItemQtdDisponivel]) || 0 : 0,
       excecaoReserva: idxItemExcecaoReserva >= 0 ? String(row[idxItemExcecaoReserva] || '').trim() : '',
       motivoExcecaoReserva: idxItemMotivoExcecao >= 0 ? String(row[idxItemMotivoExcecao] || '').trim() : '',
-      abateReservaGlobal: idxItemAbateReservaGlobal >= 0 ? Number(row[idxItemAbateReservaGlobal]) || 0 : 0
+      abateReservaGlobal: idxItemAbateReservaGlobal >= 0 ? Number(row[idxItemAbateReservaGlobal]) || 0 : 0,
+      statusEntregaItem: idxItemStatusEntrega >= 0 ? String(row[idxItemStatusEntrega] || '').trim() : '',
+      entregueItemEm: idxItemDataEntrega >= 0 ? formatDateTimeSafe_(row[idxItemDataEntrega]) : ''
     });
   });
 
@@ -422,11 +692,17 @@ function getDashboardData() {
       totalFisico,
       totalReserva,
       totalDisponivel,
+      totalDisponivelReal,
+      totalDisponivelGap: totalDisponivelReal - totalDisponivel,
+      totalBrancaDisponivel,
       totalPretaDisponivel,
       totalAzulDisponivel,
       totalReservados,
       totalAlternativa,
       totalReposicao,
+      totalCamisasAEntregar,
+      totalCamisasEntregues,
+      totalCamisasPendentesEntrega,
       reservaGlobalInicial: reserveGlobalStatus.initial,
       reservaGlobalConsumida: reserveGlobalStatus.consumed,
       reservaGlobalRestante: reserveGlobalStatus.remaining
@@ -441,9 +717,12 @@ function markOrderDelivered(payload) {
   if (!requestId) throw new Error('Informe o requestId para marcar como entregue.');
 
   ensureMainResponseSheet_();
+  ensureItemsSheet_();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
+  const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
   if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" nao encontrada.`);
+  if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" nao encontrada.`);
 
   const headers = responseSheet.getRange(1, 1, 1, responseSheet.getLastColumn()).getValues()[0];
   const idxRequestId = findHeaderIndex_(headers, ['ID Solicitacao', 'ID Solicitação']);
@@ -473,11 +752,181 @@ function markOrderDelivered(payload) {
   responseSheet.getRange(targetRow, idxStatusEntrega + 1).setValue('ENTREGUE');
   responseSheet.getRange(targetRow, idxDataEntrega + 1).setValue(now);
 
+  const itemHeaders = itemsSheet.getRange(1, 1, 1, itemsSheet.getLastColumn()).getValues()[0];
+  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemStatusEntrega = findHeaderIndex_(itemHeaders, ['Status Entrega Item']);
+  const idxItemDataEntrega = findHeaderIndex_(itemHeaders, ['Data/Hora Entrega Item']);
+
+  if (idxItemRequestId >= 0 && idxItemStatusEntrega >= 0 && idxItemDataEntrega >= 0) {
+    const itemData = itemsSheet.getDataRange().getValues();
+    for (let i = 1; i < itemData.length; i++) {
+      const currentRequestId = String(itemData[i][idxItemRequestId] || '').trim();
+      if (currentRequestId !== requestId) continue;
+      itemsSheet.getRange(i + 1, idxItemStatusEntrega + 1).setValue('ENTREGUE');
+      itemsSheet.getRange(i + 1, idxItemDataEntrega + 1).setValue(now);
+    }
+  }
+
   return {
     success: true,
     requestId: requestId,
     deliveredAt: Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
   };
+}
+
+function settleReplenishment(payload) {
+  const requestId = payload && payload.requestId ? String(payload.requestId).trim() : '';
+  const ordemItem = Number(payload && payload.ordemItem) || 0;
+  const quantidadeRecebidaPayload = Number(payload && payload.quantidadeRecebida) || 0;
+
+  if (!requestId) throw new Error('Informe o requestId para quitar reposicao.');
+  if (ordemItem <= 0) throw new Error('Informe a ordem do item para quitar reposicao.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    ensureMainResponseSheet_();
+    ensureItemsSheet_();
+    ensureGerencialSheet_();
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
+    const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
+    const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
+
+    if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" nao encontrada.`);
+    if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
+    if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" nao encontrada.`);
+
+    const itemData = itemsSheet.getDataRange().getValues();
+    const itemHeaders = itemData[0] || [];
+
+    const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+    const idxItemOrdem = findHeaderIndex_(itemHeaders, ['Ordem Item']);
+    const idxItemStatus = findHeaderIndex_(itemHeaders, ['Status Item']);
+    const idxItemTamanho = findHeaderIndex_(itemHeaders, ['Tamanho']);
+    const idxItemCor = findHeaderIndex_(itemHeaders, ['Cor']);
+    const idxItemQtdSolicitada = findHeaderIndex_(itemHeaders, ['Quantidade Solicitada']);
+    const idxItemQtdAtendida = findHeaderIndex_(itemHeaders, ['Quantidade Atendida']);
+    const idxItemObservacao = findHeaderIndex_(itemHeaders, ['Observação', 'Observacao']);
+
+    if ([idxItemRequestId, idxItemOrdem, idxItemStatus, idxItemTamanho, idxItemCor, idxItemQtdSolicitada, idxItemQtdAtendida].includes(-1)) {
+      throw new Error('A aba Itens Solicitação precisa conter os campos essenciais para quitar reposição.');
+    }
+
+    let itemRowIndex = -1;
+    for (let i = 1; i < itemData.length; i++) {
+      const currentRequestId = String(itemData[i][idxItemRequestId] || '').trim();
+      const currentOrdem = Number(itemData[i][idxItemOrdem]) || 0;
+      if (currentRequestId === requestId && currentOrdem === ordemItem) {
+        itemRowIndex = i + 1;
+        break;
+      }
+    }
+
+    if (itemRowIndex === -1) {
+      throw new Error(`Item da solicitação ${requestId} (ordem ${ordemItem}) não encontrado.`);
+    }
+
+    const itemRow = itemData[itemRowIndex - 1];
+    const statusAtual = String(itemRow[idxItemStatus] || '').trim();
+    const tamanho = String(itemRow[idxItemTamanho] || '').trim();
+    const cor = String(itemRow[idxItemCor] || '').trim();
+    const quantidadeSolicitada = Number(itemRow[idxItemQtdSolicitada]) || 0;
+    const quantidadeAtendidaAtual = Number(itemRow[idxItemQtdAtendida]) || 0;
+
+    if (statusAtual === 'REPOSIÇÃO QUITADA') {
+      return {
+        success: true,
+        requestId,
+        ordemItem,
+        statusItem: statusAtual,
+        quantidadeRecebida: 0,
+        estoqueAtualizado: {
+          tamanho,
+          cor,
+          quantidade: 0,
+          disponivel: 0
+        },
+        updatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
+      };
+    }
+
+    if (statusAtual !== 'SOLICITAR REPOSIÇÃO') {
+      throw new Error(`Item ${ordemItem} não está com status SOLICITAR REPOSIÇÃO.`);
+    }
+
+    const quantidadeRecebida = quantidadeRecebidaPayload > 0 ? quantidadeRecebidaPayload : quantidadeSolicitada;
+    if (quantidadeRecebida <= 0) {
+      throw new Error('Quantidade recebida inválida para quitar reposição.');
+    }
+
+    const stockData = stockSheet.getDataRange().getValues();
+    const stockHeaders = stockData[0] || [];
+
+    const idxStockTamanho = findHeaderIndex_(stockHeaders, ['Tamanho']);
+    const idxStockCor = findHeaderIndex_(stockHeaders, ['Cor']);
+    const idxStockQtd = findHeaderIndex_(stockHeaders, ['Quantidade']);
+    const idxStockDisponivel = findHeaderIndex_(stockHeaders, ['Disponível', 'Disponivel']);
+
+    if ([idxStockTamanho, idxStockCor, idxStockQtd].includes(-1)) {
+      throw new Error('A aba Estoque precisa conter Tamanho, Cor e Quantidade.');
+    }
+
+    let stockRowIndex = -1;
+    for (let i = 1; i < stockData.length; i++) {
+      const stockTamanho = String(stockData[i][idxStockTamanho] || '').trim();
+      const stockCor = String(stockData[i][idxStockCor] || '').trim();
+      if (normalizeText_(stockTamanho) === normalizeText_(tamanho) && normalizeText_(stockCor) === normalizeText_(cor)) {
+        stockRowIndex = i + 1;
+        break;
+      }
+    }
+
+    if (stockRowIndex === -1) {
+      throw new Error(`Não foi encontrado item de estoque para ${tamanho} | ${cor}.`);
+    }
+
+    const quantidadeAtualEstoque = Number(stockData[stockRowIndex - 1][idxStockQtd]) || 0;
+    const novaQuantidadeEstoque = quantidadeAtualEstoque + quantidadeRecebida;
+    stockSheet.getRange(stockRowIndex, idxStockQtd + 1).setValue(novaQuantidadeEstoque);
+
+    const novoDisponivelEstoque = idxStockDisponivel >= 0
+      ? (Number(stockData[stockRowIndex - 1][idxStockDisponivel]) || 0) + quantidadeRecebida
+      : 0;
+
+    const quantidadeAtendidaFinal = Math.min(quantidadeSolicitada, quantidadeAtendidaAtual + quantidadeRecebida);
+    itemsSheet.getRange(itemRowIndex, idxItemStatus + 1).setValue('REPOSIÇÃO QUITADA');
+    itemsSheet.getRange(itemRowIndex, idxItemQtdAtendida + 1).setValue(quantidadeAtendidaFinal);
+
+    if (idxItemObservacao >= 0) {
+      const observacaoAtual = String(itemRow[idxItemObservacao] || '').trim();
+      const notaReposicao = `Reposição quitada em ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')}.`;
+      const novaObservacao = observacaoAtual ? `${observacaoAtual} ${notaReposicao}` : notaReposicao;
+      itemsSheet.getRange(itemRowIndex, idxItemObservacao + 1).setValue(novaObservacao);
+    }
+
+    updateMainRequestStatusByItems_(requestId, responseSheet, itemsSheet);
+    updateGerencialSheet_();
+
+    return {
+      success: true,
+      requestId,
+      ordemItem,
+      statusItem: 'REPOSIÇÃO QUITADA',
+      quantidadeRecebida,
+      estoqueAtualizado: {
+        tamanho,
+        cor,
+        quantidade: novaQuantidadeEstoque,
+        disponivel: novoDisponivelEstoque
+      },
+      updatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getAvailableStockOptions_() {
@@ -580,43 +1029,58 @@ function processOrderItems_(items, options) {
     if (exact) {
       const reservaAtual = Math.max(exact.reserva, 0);
       const disponivelLivreAtual = Math.max(exact.quantidade - exact.reserva, 0);
-      const estoqueTotalAtual = Math.max(exact.quantidade, 0);
-      const quantidadeDaReserva = isSpecificReserveClient ? Math.min(quantidadeSolicitada, reservaAtual) : 0;
-      const quantidadeDoDisponivel = isSpecificReserveClient
-        ? Math.max(Math.min(quantidadeSolicitada - quantidadeDaReserva, disponivelLivreAtual), 0)
-        : 0;
-      const atendeComRegraEspecifica = isSpecificReserveClient
-        ? (quantidadeDaReserva + quantidadeDoDisponivel) >= quantidadeSolicitada
-        : false;
 
-      if ((!isSpecificReserveClient && disponivelLivreAtual >= quantidadeSolicitada) ||
-          (isSpecificReserveClient && atendeComRegraEspecifica && estoqueTotalAtual >= quantidadeSolicitada)) {
-        if (isSpecificReserveClient && reserveGlobalRemaining < quantidadeSolicitada) {
-          throw new Error(
-            `Saldo global da reserva insuficiente. Restante: ${reserveGlobalRemaining}. Pedido item ${index + 1}: ${quantidadeSolicitada}.`
-          );
-        }
-
-        if (isSpecificReserveClient &&
-            quantidadeDoDisponivel > 0 &&
-            quantidadeDaReserva < quantidadeSolicitada &&
-            !reserveExceptionReason) {
+      // Regra nova:
+      // - Excecao (cliente especifico de reserva): usa SOMENTE reserva de brinde.
+      // - Nao excecao: usa SOMENTE saldo livre (quantidade - reserva).
+      if (isSpecificReserveClient) {
+        if (!reserveExceptionReason) {
           throw new Error(
             `Informe o motivo da excecao de reserva para o item ${index + 1} (${tamanho} | ${cor}).`
           );
         }
 
-        const quantidadeAntes = exact.quantidade;
-        exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
-        if (isSpecificReserveClient) {
-          exact.reserva = Math.max(exact.reserva - quantidadeDaReserva, 0);
+        if (reserveGlobalRemaining < quantidadeSolicitada) {
+          throw new Error(
+            `Saldo global da reserva insuficiente. Restante: ${reserveGlobalRemaining}. Pedido item ${index + 1}: ${quantidadeSolicitada}.`
+          );
+        }
+
+        if (reservaAtual >= quantidadeSolicitada) {
+          const quantidadeAntes = exact.quantidade;
+          exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
+          exact.reserva = Math.max(exact.reserva - quantidadeSolicitada, 0);
           reserveGlobalRemaining -= quantidadeSolicitada;
           reserveGlobalUsedTotal += quantidadeSolicitada;
+          const quantidadeDepois = exact.quantidade;
+
+          itemsProcessed.push({
+            ordem: index + 1,
+            tamanho,
+            cor,
+            chave: `${tamanho} | ${cor}`,
+            quantidadeSolicitada,
+            quantidadeAtendida: quantidadeSolicitada,
+            statusItem: 'RESERVADO',
+            alternativaSugerida: '',
+            observacao: 'Item reservado com uso da reserva de brinde (excecao).',
+            aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
+            aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
+            origemAbatimento: 'RESERVA',
+            quantidadeDaReserva: quantidadeSolicitada,
+            quantidadeDoDisponivel: 0,
+            excecaoReserva: 'SIM',
+            motivoExcecaoReserva: reserveExceptionReason,
+            abateReservaGlobal: quantidadeSolicitada,
+            quantidadeAntes,
+            quantidadeDepois
+          });
+          return;
         }
+      } else if (disponivelLivreAtual >= quantidadeSolicitada) {
+        const quantidadeAntes = exact.quantidade;
+        exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
         const quantidadeDepois = exact.quantidade;
-        const houveExcecaoReserva = isSpecificReserveClient &&
-          quantidadeDoDisponivel > 0 &&
-          quantidadeDaReserva < quantidadeSolicitada;
 
         itemsProcessed.push({
           ordem: index + 1,
@@ -627,19 +1091,15 @@ function processOrderItems_(items, options) {
           quantidadeAtendida: quantidadeSolicitada,
           statusItem: 'RESERVADO',
           alternativaSugerida: '',
-          observacao: houveExcecaoReserva
-            ? 'Item reservado com uso parcial de saldo disponivel por excecao.'
-            : 'Item reservado com sucesso.',
+          observacao: 'Item reservado com sucesso.',
           aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
           aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
-          origemAbatimento: isSpecificReserveClient
-            ? (houveExcecaoReserva ? 'RESERVA+DISPONIVEL' : 'RESERVA')
-            : 'DISPONIVEL',
-          quantidadeDaReserva: isSpecificReserveClient ? quantidadeDaReserva : 0,
-          quantidadeDoDisponivel: isSpecificReserveClient ? quantidadeDoDisponivel : quantidadeSolicitada,
-          excecaoReserva: houveExcecaoReserva ? 'SIM' : 'NÃO',
-          motivoExcecaoReserva: houveExcecaoReserva ? reserveExceptionReason : '',
-          abateReservaGlobal: isSpecificReserveClient ? quantidadeSolicitada : 0,
+          origemAbatimento: 'DISPONIVEL',
+          quantidadeDaReserva: 0,
+          quantidadeDoDisponivel: quantidadeSolicitada,
+          excecaoReserva: 'NÃO',
+          motivoExcecaoReserva: '',
+          abateReservaGlobal: 0,
           quantidadeAntes,
           quantidadeDepois
         });
@@ -647,61 +1107,29 @@ function processOrderItems_(items, options) {
       }
     }
 
-    let alternativa = null;
-
-    if (item.aceitaTamanhoAlternativo) {
-      alternativa = findAlternativeSizeMutable_(stockRows, tamanho, cor, quantidadeSolicitada);
-    }
-
-    if (!alternativa && item.aceitaOutraCor) {
-      alternativa = findAlternativeColorMutable_(stockRows, tamanho, cor, quantidadeSolicitada);
-    }
-
-    if (alternativa) {
-      itemsProcessed.push({
-        ordem: index + 1,
-        tamanho,
-        cor,
-        chave: `${tamanho} | ${cor}`,
-        quantidadeSolicitada,
-        quantidadeAtendida: 0,
-        statusItem: 'SUGERIR ALTERNATIVA',
-        alternativaSugerida: `${alternativa.tamanho} | ${alternativa.cor}`,
-        observacao: 'Sem saldo suficiente. Alternativa encontrada.',
-        aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
-        aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
-        origemAbatimento: 'NAO_ABATIDO',
-        quantidadeDaReserva: 0,
-        quantidadeDoDisponivel: 0,
-        excecaoReserva: 'NÃO',
-        motivoExcecaoReserva: '',
-        abateReservaGlobal: 0,
-        quantidadeAntes: exact ? exact.quantidade : 0,
-        quantidadeDepois: exact ? exact.quantidade : 0
-      });
-    } else {
-      itemsProcessed.push({
-        ordem: index + 1,
-        tamanho,
-        cor,
-        chave: `${tamanho} | ${cor}`,
-        quantidadeSolicitada,
-        quantidadeAtendida: 0,
-        statusItem: 'SOLICITAR REPOSIÇÃO',
-        alternativaSugerida: '',
-        observacao: 'Sem saldo suficiente e sem alternativa disponível.',
-        aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
-        aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
-        origemAbatimento: 'NAO_ABATIDO',
-        quantidadeDaReserva: 0,
-        quantidadeDoDisponivel: 0,
-        excecaoReserva: 'NÃO',
-        motivoExcecaoReserva: '',
-        abateReservaGlobal: 0,
-        quantidadeAntes: exact ? exact.quantidade : 0,
-        quantidadeDepois: exact ? exact.quantidade : 0
-      });
-    }
+    itemsProcessed.push({
+      ordem: index + 1,
+      tamanho,
+      cor,
+      chave: `${tamanho} | ${cor}`,
+      quantidadeSolicitada,
+      quantidadeAtendida: 0,
+      statusItem: 'SOLICITAR REPOSIÇÃO',
+      alternativaSugerida: '',
+      observacao: isSpecificReserveClient
+        ? 'Sem saldo suficiente na reserva de brinde para esta excecao.'
+        : 'Sem saldo suficiente no disponivel (desconsiderando reserva de brinde).',
+      aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
+      aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
+      origemAbatimento: 'NAO_ABATIDO',
+      quantidadeDaReserva: 0,
+      quantidadeDoDisponivel: 0,
+      excecaoReserva: isSpecificReserveClient ? 'SIM' : 'NÃO',
+      motivoExcecaoReserva: isSpecificReserveClient ? reserveExceptionReason : '',
+      abateReservaGlobal: 0,
+      quantidadeAntes: exact ? exact.quantidade : 0,
+      quantidadeDepois: exact ? exact.quantidade : 0
+    });
   });
 
   stockRows.forEach(row => {
@@ -811,6 +1239,8 @@ function appendItemRows_(requestId, submittedAt, payload, itemsProcessed, proofI
     setValueByHeader_(row, headers, 'Exceção de Reserva', item.excecaoReserva || 'NÃO');
     setValueByHeader_(row, headers, 'Motivo Exceção Reserva', item.motivoExcecaoReserva || '');
     setValueByHeader_(row, headers, 'Abate Reserva Global', item.abateReservaGlobal || 0);
+    setValueByHeader_(row, headers, 'Status Entrega Item', 'PENDENTE');
+    setValueByHeader_(row, headers, 'Data/Hora Entrega Item', '');
 
     sheet.appendRow(row);
   });
@@ -838,6 +1268,7 @@ function updateGerencialSheet_() {
   const idxItemQtdSolicitada = itemHeaders.indexOf('Quantidade Solicitada');
   const idxItemQtdAtendida = itemHeaders.indexOf('Quantidade Atendida');
   const idxItemStatus = itemHeaders.indexOf('Status Item');
+  const idxItemQtdReserva = findHeaderIndex_(itemHeaders, ['Quantidade da Reserva']);
 
   const itemStats = {};
 
@@ -862,6 +1293,10 @@ function updateGerencialSheet_() {
     if (status === 'RESERVADO') itemStats[chave].reservados += qtdAtendida;
     if (status === 'SUGERIR ALTERNATIVA') itemStats[chave].alternativas += qtdSolicitada;
     if (status === 'SOLICITAR REPOSIÇÃO') itemStats[chave].reposicoes += qtdSolicitada;
+    if (status === 'RESERVADO' && idxItemQtdReserva >= 0) {
+      const qtdDaReserva = Number(row[idxItemQtdReserva]) || 0;
+      if (qtdDaReserva > 0) itemStats[chave].reposicoes += qtdDaReserva;
+    }
   });
 
   const output = [[
@@ -1037,6 +1472,63 @@ function buildOrderSummary_(itemsProcessed) {
   ).join(' ; ');
 }
 
+function updateMainRequestStatusByItems_(requestId, responseSheet, itemsSheet) {
+  if (!requestId || !responseSheet || !itemsSheet) return;
+
+  const itemsData = itemsSheet.getDataRange().getValues();
+  const itemHeaders = itemsData[0] || [];
+  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemStatus = findHeaderIndex_(itemHeaders, ['Status Item']);
+
+  if (idxItemRequestId < 0 || idxItemStatus < 0) return;
+
+  const statuses = itemsData
+    .slice(1)
+    .filter(row => String(row[idxItemRequestId] || '').trim() === requestId)
+    .map(row => String(row[idxItemStatus] || '').trim())
+    .filter(Boolean);
+
+  if (!statuses.length) return;
+
+  const hasReposicaoPendente = statuses.includes('SOLICITAR REPOSIÇÃO');
+  const hasAlternativa = statuses.includes('SUGERIR ALTERNATIVA');
+  const hasReposicaoQuitada = statuses.includes('REPOSIÇÃO QUITADA');
+  const allReserved = statuses.every(status => status === 'RESERVADO');
+
+  let statusGeral = 'PROCESSAMENTO PARCIAL';
+  let observacaoGeral = 'A solicitação contém múltiplos status de atendimento.';
+
+  if (hasReposicaoPendente) {
+    statusGeral = 'SOLICITAR REPOSIÇÃO';
+    observacaoGeral = 'Há itens pendentes de reposição.';
+  } else if (hasAlternativa) {
+    statusGeral = 'SUGERIR ALTERNATIVA';
+    observacaoGeral = 'Há itens aguardando decisão sobre alternativa.';
+  } else if (allReserved) {
+    statusGeral = 'RESERVADO';
+    observacaoGeral = 'Todos os itens foram reservados com sucesso.';
+  } else if (hasReposicaoQuitada) {
+    statusGeral = 'REPOSIÇÃO QUITADA';
+    observacaoGeral = 'Reposição quitada e estoque atualizado.';
+  }
+
+  const responseData = responseSheet.getDataRange().getValues();
+  const responseHeaders = responseData[0] || [];
+  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxStatusGeral = findHeaderIndex_(responseHeaders, ['Status Geral', 'Status Estoque']);
+  const idxObservacaoGeral = findHeaderIndex_(responseHeaders, ['Observação Geral', 'Observacao Geral', 'Observação Estoque', 'Observacao Estoque']);
+
+  if (idxRequestId < 0 || idxStatusGeral < 0 || idxObservacaoGeral < 0) return;
+
+  for (let i = 1; i < responseData.length; i++) {
+    const currentRequestId = String(responseData[i][idxRequestId] || '').trim();
+    if (currentRequestId !== requestId) continue;
+    responseSheet.getRange(i + 1, idxStatusGeral + 1).setValue(statusGeral);
+    responseSheet.getRange(i + 1, idxObservacaoGeral + 1).setValue(observacaoGeral);
+    break;
+  }
+}
+
 function findStockMutableRow_(stockRows, tamanho, cor) {
   return stockRows.find(row =>
     normalizeText_(row.tamanho) === normalizeText_(tamanho) &&
@@ -1202,7 +1694,9 @@ function ensureItemsSheet_() {
     'Quantidade do Disponível',
     'Exceção de Reserva',
     'Motivo Exceção Reserva',
-    'Abate Reserva Global'
+    'Abate Reserva Global',
+    'Status Entrega Item',
+    'Data/Hora Entrega Item'
   ]);
 }
 
