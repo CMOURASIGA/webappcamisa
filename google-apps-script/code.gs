@@ -622,16 +622,17 @@ function getDashboardData() {
     const requestId = idxItemRequestId >= 0 ? String(row[idxItemRequestId] || '').trim() : '';
     if (!requestId) return;
 
-    const qtdAtendida = Number(row[idxItemQtdAtendida]) || 0;
+    const qtdSolicitada = Number(row[idxItemQtdSolicitada]) || 0;
     const statusEntregaRequest = statusEntregaByRequestId[requestId] || 'PENDENTE';
-    if (qtdAtendida > 0) {
-      totalCamisasAEntregar += qtdAtendida;
+    if (qtdSolicitada > 0) {
+      // "A entregar" agora significa tudo que precisa ser realizado (demanda total solicitada).
+      totalCamisasAEntregar += qtdSolicitada;
       if (statusEntregaRequest === 'ENTREGUE') {
-        totalCamisasEntregues += qtdAtendida;
-      } else {
-        totalCamisasPendentesEntrega += qtdAtendida;
+        totalCamisasEntregues += qtdSolicitada;
       }
     }
+
+    totalCamisasPendentesEntrega = Math.max(totalCamisasAEntregar - totalCamisasEntregues, 0);
 
     if (!itemsByRequestId[requestId]) itemsByRequestId[requestId] = [];
     itemsByRequestId[requestId].push({
