@@ -251,6 +251,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'detalhamento' | 'pedidos'>('detalhamento');
   const [searchName, setSearchName] = useState('');
+  const [orderSort, setOrderSort] = useState<'oldest' | 'newest'>('oldest');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
@@ -294,6 +295,16 @@ export default function Dashboard() {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim();
+
+  const parsePtBrDateTime = (value: string) => {
+    const raw = (value || '').trim();
+    if (!raw) return 0;
+    const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (!match) return 0;
+
+    const [, dd, mm, yyyy, hh = '00', min = '00', ss = '00'] = match;
+    return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min), Number(ss)).getTime();
+  };
 
   const filteredTable = useMemo(() => {
     if (!data) return [];
@@ -357,10 +368,14 @@ export default function Dashboard() {
     if (!data) return [];
     const orders = Array.isArray(data.pedidos) ? data.pedidos : [];
     const needle = normalizeText(searchName);
-    if (!needle) return orders;
+    const byName = !needle ? orders : orders.filter((order) => normalizeText(order.nomeCompleto).includes(needle));
 
-    return orders.filter((order) => normalizeText(order.nomeCompleto).includes(needle));
-  }, [data, searchName]);
+    return [...byName].sort((a, b) => {
+      const timeA = parsePtBrDateTime(a.dataHora);
+      const timeB = parsePtBrDateTime(b.dataHora);
+      return orderSort === 'oldest' ? timeA - timeB : timeB - timeA;
+    });
+  }, [data, searchName, orderSort]);
 
   const handleMarkAsDelivered = async (order: DashboardOrder) => {
     setError(null);
@@ -690,13 +705,28 @@ export default function Dashboard() {
             </div>
 
             <div className="p-4 md:p-5 border-b border-border-color bg-[#FCFCFC]">
-              <input
-                type="text"
-                value={searchName}
-                onChange={(e) => setSearchName(e.target.value)}
-                placeholder="Buscar por nome do solicitante..."
-                className="w-full md:max-w-[420px] p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
-              />
+              <div className="flex flex-col md:flex-row gap-3 md:items-end">
+                <div className="w-full md:max-w-[420px]">
+                  <input
+                    type="text"
+                    value={searchName}
+                    onChange={(e) => setSearchName(e.target.value)}
+                    placeholder="Buscar por nome do solicitante..."
+                    className="w-full p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="w-full md:w-[320px]">
+                  <label className="block text-[12px] text-text-muted font-semibold uppercase mb-1.5">Ordem de solicitação</label>
+                  <select
+                    value={orderSort}
+                    onChange={(e) => setOrderSort(e.target.value as 'oldest' | 'newest')}
+                    className="w-full p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
+                  >
+                    <option value="oldest">Mais antiga primeiro</option>
+                    <option value="newest">Mais nova primeiro</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div className="p-4 md:p-5 flex flex-col gap-3">
