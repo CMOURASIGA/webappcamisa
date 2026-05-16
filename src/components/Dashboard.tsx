@@ -407,7 +407,7 @@ export default function Dashboard() {
         grouped.set(sizeKey, { tamanho: sizeKey, Branca: 0, Azul: 0, Preta: 0, total: 0 });
       }
 
-      const value = Number(row.quantidade || 0) + Number(row.reposicoes || 0);
+      const value = Number(row.reserva || 0) + Number(row.reposicoes || 0);
       const current = grouped.get(sizeKey)!;
       current[normalizedColor] += value;
       current.total += value;
@@ -754,7 +754,7 @@ export default function Dashboard() {
             <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
               <h2 className="m-0 text-[18px] font-bold text-text-main">Estoque inicial + reposicao por tamanho</h2>
               <p className="mt-1.5 mb-0 text-text-muted text-[13px]">
-                Quadro consolidado por tamanho e cor (Branca, Azul e Preta), somando quantidade inicial com reposicoes.
+                Quadro consolidado por tamanho e cor (Branca, Azul e Preta), usando a fórmula: Reserva Brinde + Reposições.
               </p>
             </div>
 
