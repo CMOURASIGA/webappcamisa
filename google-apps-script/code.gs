@@ -842,6 +842,11 @@ function markOrderStockSettled(payload) {
     }
   }
 
+  const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
+  if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
+  syncStockDisponivelFromQuantidadeReserva_(stockSheet);
+  updateGerencialSheet_();
+
   return {
     success: true,
     requestId: requestId,
@@ -1801,6 +1806,29 @@ function ensureHeaders_(sheet, requiredHeaders) {
       sheet.getRange(1, appendAt).setValue(header);
     }
   });
+}
+
+function syncStockDisponivelFromQuantidadeReserva_(stockSheet) {
+  const data = stockSheet.getDataRange().getValues();
+  const headers = data[0] || [];
+
+  const idxQtd = findHeaderIndex_(headers, ['Quantidade']);
+  const idxReserva = findHeaderIndex_(headers, ['Reserva Brinde']);
+  const idxDisponivel = findHeaderIndex_(headers, ['Disponível', 'Disponivel']);
+
+  if ([idxQtd, idxReserva, idxDisponivel].includes(-1)) {
+    throw new Error('A aba Estoque precisa conter Quantidade, Reserva Brinde e Disponível.');
+  }
+
+  if (data.length < 2) return;
+
+  const output = data.slice(1).map(row => {
+    const quantidade = Number(row[idxQtd]) || 0;
+    const reserva = Number(row[idxReserva]) || 0;
+    return [Math.max(quantidade - reserva, 0)];
+  });
+
+  stockSheet.getRange(2, idxDisponivel + 1, output.length, 1).setValues(output);
 }
 
 function setValueByHeader_(rowArray, headers, headerName, value) {
