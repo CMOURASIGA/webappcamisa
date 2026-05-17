@@ -45,7 +45,7 @@ function doGet(e) {
     ok: true,
     mode: 'api',
     message: 'Web App ativo. Use POST com { action, payload }.',
-    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'markOrderDelivered', 'markOrderStockSettled', 'settleReplenishment', 'setupWebappEnvironment', 'repairHistoricalItems']
+    actions: ['getBootstrapData', 'submitOrder', 'getDashboardData', 'markOrderDelivered', 'markOrderStockSettled', 'settleReplenishment', 'setupWebappEnvironment', 'repairHistoricalItems', 'recalculateFromItems']
   });
 }
 
@@ -82,6 +82,8 @@ function handleApiAction_(action, payload) {
         return jsonResponse_({ ok: true, data: setupWebappEnvironment() });
       case 'repairHistoricalItems':
         return jsonResponse_({ ok: true, data: repairHistoricalItemsByCurrentRule_() });
+      case 'recalculateFromItems':
+        return jsonResponse_({ ok: true, data: recalculateFromItems_() });
       case 'submitOrder':
         return jsonResponse_({ ok: true, data: submitOrder(payload) });
       default:
@@ -134,6 +136,28 @@ function setupWebappEnvironment() {
 
 function repairHistoricalItems() {
   return repairHistoricalItemsByCurrentRule_();
+}
+
+function recalculateFromItems() {
+  return recalculateFromItems_();
+}
+
+function recalculateFromItems_() {
+  const repair = repairHistoricalItemsByCurrentRule_();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
+  if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
+
+  syncStockDisponivelFromQuantidadeReserva_(stockSheet);
+  updateGerencialSheet_();
+
+  return {
+    success: true,
+    repairedRows: Number(repair && repair.updatedRows) || 0,
+    impactedRequests: Number(repair && repair.impactedRequests) || 0,
+    updatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
+    message: 'Recalculo concluido com base na aba Itens Solicitacao.'
+  };
 }
 
 function repairHistoricalItemsByCurrentRule_() {
