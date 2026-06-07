@@ -4,10 +4,9 @@ const STOCK_SHEET_NAME = 'Estoque';
 const RESPONSE_SHEET_NAME = 'Respostas ao formulário 1';
 const ITEMS_SHEET_NAME = 'Itens Solicitação';
 const GERENCIAL_SHEET_NAME = 'Gerencial';
+const RESERVE_GLOBAL_INITIAL = 0;
 
 const PROOF_FOLDER_NAME = 'Comprovantes Camisas EAC';
-const RESERVE_GLOBAL_INITIAL = 72;
-
 const DASHBOARD_LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 const INSTAGRAM_URL = 'https://www.instagram.com/eacporciunculadesantana/';
 
@@ -405,15 +404,9 @@ function submitOrder(payload) {
 
     const requestId = generateRequestId_();
     const submittedAt = new Date();
-    const reserveGlobalStatusBefore = getReserveGlobalStatus_();
-    const isSpecificReserveClient = !!payload.clienteEspecificoReserva;
 
     const proofInfo = saveProofFile_(payload.proofFile, requestId, payload.nomeCompleto);
-    const processResult = processOrderItems_(payload.items, {
-      isSpecificReserveClient,
-      reserveExceptionReason: payload.motivoExcecaoReserva,
-      reserveGlobalRemaining: reserveGlobalStatusBefore.remaining
-    });
+    const processResult = processOrderItems_(payload.items);
     const mainStatus = buildMainStatus_(processResult.itemsProcessed);
 
     appendMainRequestRow_({
@@ -428,8 +421,8 @@ function submitOrder(payload) {
       statusGeral: mainStatus.statusGeral,
       observacaoGeral: mainStatus.observacaoGeral,
       quantidadeItens: payload.items.length,
-      clienteEspecificoReserva: isSpecificReserveClient,
-      motivoExcecaoReserva: payload.motivoExcecaoReserva
+      clienteEspecificoReserva: false,
+      motivoExcecaoReserva: ''
     });
 
     appendItemRows_(requestId, submittedAt, payload, processResult.itemsProcessed, proofInfo);
@@ -449,11 +442,6 @@ function submitOrder(payload) {
       statusGeral: mainStatus.statusGeral,
       observacaoGeral: mainStatus.observacaoGeral,
       proofUrl: proofInfo.url,
-      reservaGlobal: {
-        inicial: RESERVE_GLOBAL_INITIAL,
-        consumida: reserveGlobalStatusBefore.consumed + processResult.reserveGlobalUsedTotal,
-        restante: reserveGlobalStatusBefore.remaining - processResult.reserveGlobalUsedTotal
-      },
       message: 'Solicitação enviada com sucesso.'
     };
 
@@ -465,129 +453,79 @@ function submitOrder(payload) {
 function getDashboardData() {
   ensureMainResponseSheet_();
   ensureItemsSheet_();
-  const reserveGlobalStatus = getReserveGlobalStatus_();
+  ensureGerencialSheet_();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
   const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
   const responseSheet = ss.getSheetByName(RESPONSE_SHEET_NAME);
-
-  if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" não encontrada.`);
-  if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" não encontrada.`);
-  if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" não encontrada.`);
-
+  if (!stockSheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
+  if (!itemsSheet) throw new Error(`Aba "${ITEMS_SHEET_NAME}" nao encontrada.`);
+  if (!responseSheet) throw new Error(`Aba "${RESPONSE_SHEET_NAME}" nao encontrada.`);
   const stockData = stockSheet.getDataRange().getValues();
-  const stockHeaders = stockData[0];
-
-  const idxTamanho = stockHeaders.indexOf('Tamanho');
-  const idxQtd = stockHeaders.indexOf('Quantidade');
-  const idxCor = stockHeaders.indexOf('Cor');
-  const idxReserva = stockHeaders.indexOf('Reserva Brinde');
-  const idxDisponivel = stockHeaders.indexOf('Disponível');
-
-  if ([idxTamanho, idxQtd, idxCor, idxReserva, idxDisponivel].includes(-1)) {
-    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor, Reserva Brinde, Disponível');
+  const stockHeaders = stockData[0] || [];
+  const idxTamanho = findHeaderIndex_(stockHeaders, ['Tamanho']);
+  const idxQtd = findHeaderIndex_(stockHeaders, ['Quantidade']);
+  const idxCor = findHeaderIndex_(stockHeaders, ['Cor']);
+  const idxDisponivel = findHeaderIndex_(stockHeaders, ['Disponivel', 'Dispon?vel']);
+  if ([idxTamanho, idxQtd, idxCor, idxDisponivel].includes(-1)) {
+    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor e Disponivel');
   }
-
+  const controlMap = getGerencialControlMap_();
   let totalFisico = 0;
-  let totalReserva = 0;
   let totalDisponivel = 0;
-  let totalDisponivelReal = 0;
   let totalBrancaDisponivel = 0;
   let totalPretaDisponivel = 0;
   let totalAzulDisponivel = 0;
-
   const tabelaEstoque = stockData.slice(1).map(row => {
     const tamanho = String(row[idxTamanho] || '').trim();
     const cor = String(row[idxCor] || '').trim();
     const quantidade = Number(row[idxQtd]) || 0;
-    const reserva = Number(row[idxReserva]) || 0;
     const disponivel = Number(row[idxDisponivel]) || 0;
-    const disponivelReal = Math.max(quantidade - reserva, 0);
-
+    const chave = `${tamanho} | ${cor}`;
     totalFisico += quantidade;
-    totalReserva += reserva;
     totalDisponivel += disponivel;
-    totalDisponivelReal += disponivelReal;
-
     if (normalizeText_(cor) === 'BRANCA') totalBrancaDisponivel += disponivel;
     if (normalizeText_(cor) === 'PRETA') totalPretaDisponivel += disponivel;
     if (normalizeText_(cor) === 'AZUL') totalAzulDisponivel += disponivel;
-
     return {
       tamanho,
       cor,
       quantidade,
-      reserva,
+      reserva: 0,
       disponivel,
-      chave: `${tamanho} | ${cor}`
+      controlaSaldo: getControlFlagByKey_(controlMap, chave),
+      chave
     };
   });
-
   const itemsData = itemsSheet.getDataRange().getValues();
-  const itemHeaders = itemsData[0];
-
-  const idxItemChave = itemHeaders.indexOf('Chave');
-  const idxItemQtdSolicitada = itemHeaders.indexOf('Quantidade Solicitada');
-  const idxItemQtdAtendida = itemHeaders.indexOf('Quantidade Atendida');
-  const idxItemStatus = itemHeaders.indexOf('Status Item');
-  const idxItemQtdReserva = findHeaderIndex_(itemHeaders, ['Quantidade da Reserva']);
-  const idxItemAlternativa = itemHeaders.indexOf('Alternativa Sugerida');
-  const idxItemOrigemAbatimento = findHeaderIndex_(itemHeaders, ['Origem Abatimento']);
-  const idxItemQtdDisponivel = findHeaderIndex_(itemHeaders, ['Quantidade do Disponível', 'Quantidade do Disponivel']);
-  const idxItemExcecaoReserva = findHeaderIndex_(itemHeaders, ['Exceção de Reserva', 'Excecao de Reserva']);
-  const idxItemMotivoExcecao = findHeaderIndex_(itemHeaders, ['Motivo Exceção Reserva', 'Motivo Excecao Reserva']);
-  const idxItemAbateReservaGlobal = findHeaderIndex_(itemHeaders, ['Abate Reserva Global']);
-
-  let totalReservados = 0;
-  let totalAlternativa = 0;
+  const itemHeaders = itemsData[0] || [];
+  const idxItemChave = findHeaderIndex_(itemHeaders, ['Chave']);
+  const idxItemQtdSolicitada = findHeaderIndex_(itemHeaders, ['Quantidade Solicitada']);
+  const idxItemQtdAtendida = findHeaderIndex_(itemHeaders, ['Quantidade Atendida']);
+  const idxItemStatus = findHeaderIndex_(itemHeaders, ['Status Item']);
+  const idxItemAlternativa = findHeaderIndex_(itemHeaders, ['Alternativa Sugerida']);
+  let totalAtendidos = 0;
   let totalReposicao = 0;
-
   const statsMap = {};
-
   itemsData.slice(1).forEach(row => {
     const chave = String(row[idxItemChave] || '').trim();
     const qtdSolicitada = Number(row[idxItemQtdSolicitada]) || 0;
     const qtdAtendida = Number(row[idxItemQtdAtendida]) || 0;
     const status = String(row[idxItemStatus] || '').trim();
-
     if (!chave) return;
-
     if (!statsMap[chave]) {
-      statsMap[chave] = {
-        solicitacoes: 0,
-        reservados: 0,
-        alternativas: 0,
-        reposicoes: 0
-      };
+      statsMap[chave] = { solicitacoes: 0, atendidos: 0, alternativas: 0, reposicoes: 0 };
     }
-
     statsMap[chave].solicitacoes += qtdSolicitada;
-
-    if (status === 'RESERVADO') {
-      statsMap[chave].reservados += qtdAtendida;
-      totalReservados += qtdAtendida;
+    if (status === 'ATENDIDO') {
+      statsMap[chave].atendidos += qtdAtendida;
+      totalAtendidos += qtdAtendida;
     }
-
-    if (status === 'SUGERIR ALTERNATIVA') {
-      statsMap[chave].alternativas += qtdSolicitada;
-      totalAlternativa += qtdSolicitada;
-    }
-
-    if (status === 'SOLICITAR REPOSIÇÃO') {
+    if (status === 'SOLICITAR REPOSI??O') {
       statsMap[chave].reposicoes += qtdSolicitada;
       totalReposicao += qtdSolicitada;
     }
-
-    // Pedido especial: tudo que sai da reserva de brinde precisa entrar em reposicao.
-    if (status === 'RESERVADO' && idxItemQtdReserva >= 0) {
-      const qtdDaReserva = Number(row[idxItemQtdReserva]) || 0;
-      if (qtdDaReserva > 0) {
-        statsMap[chave].reposicoes += qtdDaReserva;
-        totalReposicao += qtdDaReserva;
-      }
-    }
   });
-
   const tabelaGerencial = tabelaEstoque
     .sort((a, b) => {
       const corCmp = normalizeText_(a.cor).localeCompare(normalizeText_(b.cor));
@@ -595,28 +533,20 @@ function getDashboardData() {
       return SIZE_ORDER.indexOf(a.tamanho) - SIZE_ORDER.indexOf(b.tamanho);
     })
     .map(item => {
-      const s = statsMap[item.chave] || {
-        solicitacoes: 0,
-        reservados: 0,
-        alternativas: 0,
-        reposicoes: 0
-      };
-
+      const s = statsMap[item.chave] || { solicitacoes: 0, atendidos: 0, alternativas: 0, reposicoes: 0 };
       return {
         ...item,
         solicitacoes: s.solicitacoes,
-        reservados: s.reservados,
-        alternativas: s.alternativas,
+        reservados: s.atendidos,
+        alternativas: 0,
         reposicoes: s.reposicoes
       };
     });
-
   const responseData = responseSheet.getDataRange().getValues();
   const responseHeaders = responseData[0] || [];
-
-  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicita??o']);
   const idxDataHora = findHeaderIndex_(responseHeaders, ['Carimbo de data/hora', 'Data/Hora']);
-  const idxEmail = findHeaderIndex_(responseHeaders, ['Endereco de e-mail', 'Endereço de e-mail']);
+  const idxEmail = findHeaderIndex_(responseHeaders, ['Endereco de e-mail', 'Endere?o de e-mail']);
   const idxNomeCompleto = findHeaderIndex_(responseHeaders, ['Nome Completo']);
   const idxEquipe = findHeaderIndex_(responseHeaders, ['Equipe']);
   const idxResumoPedido = findHeaderIndex_(responseHeaders, ['Resumo Pedido']);
@@ -625,8 +555,7 @@ function getDashboardData() {
   const idxDataEntrega = findHeaderIndex_(responseHeaders, ['Data/Hora Entrega']);
   const idxStatusBaixa = findHeaderIndex_(responseHeaders, ['Status Baixa Estoque']);
   const idxDataBaixa = findHeaderIndex_(responseHeaders, ['Data/Hora Baixa Estoque']);
-
-  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicita??o']);
   const idxItemOrdem = findHeaderIndex_(itemHeaders, ['Ordem Item']);
   const idxItemTamanho = findHeaderIndex_(itemHeaders, ['Tamanho']);
   const idxItemCor = findHeaderIndex_(itemHeaders, ['Cor']);
@@ -634,7 +563,6 @@ function getDashboardData() {
   const idxItemDataEntrega = findHeaderIndex_(itemHeaders, ['Data/Hora Entrega Item']);
   const idxItemStatusBaixa = findHeaderIndex_(itemHeaders, ['Status Baixa Item']);
   const idxItemDataBaixa = findHeaderIndex_(itemHeaders, ['Data/Hora Baixa Item']);
-
   const statusEntregaByRequestId = {};
   responseData.slice(1).forEach(row => {
     const reqId = idxRequestId >= 0 ? String(row[idxRequestId] || '').trim() : '';
@@ -642,28 +570,20 @@ function getDashboardData() {
     const statusEntrega = idxStatusEntrega >= 0 ? String(row[idxStatusEntrega] || '').trim() : '';
     statusEntregaByRequestId[reqId] = statusEntrega || 'PENDENTE';
   });
-
   let totalCamisasAEntregar = 0;
   let totalCamisasEntregues = 0;
   let totalCamisasPendentesEntrega = 0;
-
   const itemsByRequestId = {};
   itemsData.slice(1).forEach(row => {
     const requestId = idxItemRequestId >= 0 ? String(row[idxItemRequestId] || '').trim() : '';
     if (!requestId) return;
-
     const qtdSolicitada = Number(row[idxItemQtdSolicitada]) || 0;
     const statusEntregaRequest = statusEntregaByRequestId[requestId] || 'PENDENTE';
     if (qtdSolicitada > 0) {
-      // "A entregar" agora significa tudo que precisa ser realizado (demanda total solicitada).
       totalCamisasAEntregar += qtdSolicitada;
-      if (statusEntregaRequest === 'ENTREGUE') {
-        totalCamisasEntregues += qtdSolicitada;
-      }
+      if (statusEntregaRequest === 'ENTREGUE') totalCamisasEntregues += qtdSolicitada;
     }
-
     totalCamisasPendentesEntrega = Math.max(totalCamisasAEntregar - totalCamisasEntregues, 0);
-
     if (!itemsByRequestId[requestId]) itemsByRequestId[requestId] = [];
     itemsByRequestId[requestId].push({
       ordemItem: idxItemOrdem >= 0 ? Number(row[idxItemOrdem]) || 0 : 0,
@@ -673,31 +593,22 @@ function getDashboardData() {
       quantidadeAtendida: Number(row[idxItemQtdAtendida]) || 0,
       statusItem: String(row[idxItemStatus] || '').trim(),
       alternativaSugerida: idxItemAlternativa >= 0 ? String(row[idxItemAlternativa] || '').trim() : '',
-      origemAbatimento: idxItemOrigemAbatimento >= 0 ? String(row[idxItemOrigemAbatimento] || '').trim() : '',
-      quantidadeDaReserva: idxItemQtdReserva >= 0 ? Number(row[idxItemQtdReserva]) || 0 : 0,
-      quantidadeDoDisponivel: idxItemQtdDisponivel >= 0 ? Number(row[idxItemQtdDisponivel]) || 0 : 0,
-      excecaoReserva: idxItemExcecaoReserva >= 0 ? String(row[idxItemExcecaoReserva] || '').trim() : '',
-      motivoExcecaoReserva: idxItemMotivoExcecao >= 0 ? String(row[idxItemMotivoExcecao] || '').trim() : '',
-      abateReservaGlobal: idxItemAbateReservaGlobal >= 0 ? Number(row[idxItemAbateReservaGlobal]) || 0 : 0,
       statusEntregaItem: idxItemStatusEntrega >= 0 ? String(row[idxItemStatusEntrega] || '').trim() : '',
       entregueItemEm: idxItemDataEntrega >= 0 ? formatDateTimeSafe_(row[idxItemDataEntrega]) : '',
       statusBaixaItem: idxItemStatusBaixa >= 0 ? String(row[idxItemStatusBaixa] || '').trim() : '',
       baixaItemEm: idxItemDataBaixa >= 0 ? formatDateTimeSafe_(row[idxItemDataBaixa]) : ''
     });
   });
-
   const pedidos = responseData
     .slice(1)
     .map(row => {
       const requestId = idxRequestId >= 0 ? String(row[idxRequestId] || '').trim() : '';
       if (!requestId) return null;
-
       const rawDataHora = idxDataHora >= 0 ? row[idxDataHora] : '';
       const rawDataEntrega = idxDataEntrega >= 0 ? row[idxDataEntrega] : '';
       const statusEntrega = idxStatusEntrega >= 0 ? String(row[idxStatusEntrega] || '').trim() : '';
       const rawDataBaixa = idxDataBaixa >= 0 ? row[idxDataBaixa] : '';
       const statusBaixa = idxStatusBaixa >= 0 ? String(row[idxStatusBaixa] || '').trim() : '';
-
       return {
         requestId,
         dataHora: formatDateTimeSafe_(rawDataHora),
@@ -720,35 +631,30 @@ function getDashboardData() {
       delete item._timestamp;
       return item;
     });
-
   return {
     logoUrl: DASHBOARD_LOGO_URL,
     instagramUrl: INSTAGRAM_URL,
     atualizadoEm: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
     indicadores: {
       totalFisico,
-      totalReserva,
+      totalReserva: 0,
       totalDisponivel,
-      totalDisponivelReal,
-      totalDisponivelGap: totalDisponivelReal - totalDisponivel,
+      totalDisponivelReal: totalDisponivel,
+      totalDisponivelGap: 0,
       totalBrancaDisponivel,
       totalPretaDisponivel,
       totalAzulDisponivel,
-      totalReservados,
-      totalAlternativa,
+      totalReservados: totalAtendidos,
+      totalAlternativa: 0,
       totalReposicao,
       totalCamisasAEntregar,
       totalCamisasEntregues,
-      totalCamisasPendentesEntrega,
-      reservaGlobalInicial: reserveGlobalStatus.initial,
-      reservaGlobalConsumida: reserveGlobalStatus.consumed,
-      reservaGlobalRestante: reserveGlobalStatus.remaining
+      totalCamisasPendentesEntrega
     },
     tabelaGerencial,
     pedidos
   };
 }
-
 function markOrderDelivered(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId).trim() : '';
   if (!requestId) throw new Error('Informe o requestId para marcar como entregue.');
@@ -1036,203 +942,122 @@ function settleReplenishment(payload) {
 function getAvailableStockOptions_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName(STOCK_SHEET_NAME);
-  if (!sheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" não encontrada.`);
-
+  if (!sheet) throw new Error(`Aba "${STOCK_SHEET_NAME}" nao encontrada.`);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
-
-  const idxTamanho = headers.indexOf('Tamanho');
-  const idxQtd = headers.indexOf('Quantidade');
-  const idxCor = headers.indexOf('Cor');
-  const idxReserva = headers.indexOf('Reserva Brinde');
-  const idxDisponivel = headers.indexOf('Disponível');
-
-  if ([idxTamanho, idxQtd, idxCor, idxReserva, idxDisponivel].includes(-1)) {
-    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor, Reserva Brinde, Disponível');
+  const idxTamanho = findHeaderIndex_(headers, ['Tamanho']);
+  const idxQtd = findHeaderIndex_(headers, ['Quantidade']);
+  const idxCor = findHeaderIndex_(headers, ['Cor']);
+  const idxDisponivel = findHeaderIndex_(headers, ['Disponivel', 'Dispon?vel']);
+  if ([idxTamanho, idxQtd, idxCor, idxDisponivel].includes(-1)) {
+    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor e Disponivel');
   }
-
   const rows = data.slice(1)
     .map(row => ({
       tamanho: String(row[idxTamanho] || '').trim(),
       cor: String(row[idxCor] || '').trim(),
       quantidade: Number(row[idxQtd]) || 0,
-      reserva: Number(row[idxReserva]) || 0,
-      disponivel: Math.max((Number(row[idxQtd]) || 0) - (Number(row[idxReserva]) || 0), 0)
+      reserva: 0,
+      disponivel: Number(row[idxDisponivel]) || 0
     }))
-    .filter(item => item.tamanho && item.cor && item.disponivel > 0)
+    .filter(item => item.tamanho && item.cor)
     .sort((a, b) => {
       const corCmp = normalizeText_(a.cor).localeCompare(normalizeText_(b.cor));
       if (corCmp !== 0) return corCmp;
       return SIZE_ORDER.indexOf(a.tamanho) - SIZE_ORDER.indexOf(b.tamanho);
     });
-
-  const colors = [...new Set(rows.map(r => r.cor))];
-  const specificReserveColors = [...new Set(
-    rows
-      .filter(r => r.reserva > 0)
-      .map(r => r.cor)
-  )];
-
   return {
-    colors,
-    specificReserveColors,
+    colors: [...new Set(rows.map(r => r.cor))],
+    specificReserveColors: [],
     rows
   };
 }
-
-function processOrderItems_(items, options) {
-  const opts = options || {};
-  const isSpecificReserveClient = !!opts.isSpecificReserveClient;
-  const reserveExceptionReason = String(opts.reserveExceptionReason || '').trim();
-  let reserveGlobalRemaining = Number(opts.reserveGlobalRemaining) || 0;
-  let reserveGlobalUsedTotal = 0;
-
+function processOrderItems_(items) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
   const stockData = stockSheet.getDataRange().getValues();
   const headers = stockData[0];
-
-  const idxTamanho = headers.indexOf('Tamanho');
-  const idxQtd = headers.indexOf('Quantidade');
-  const idxCor = headers.indexOf('Cor');
-  const idxReserva = headers.indexOf('Reserva Brinde');
-  const idxDisponivel = headers.indexOf('Disponível');
-
-  if ([idxTamanho, idxQtd, idxCor, idxReserva, idxDisponivel].includes(-1)) {
-    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor, Reserva Brinde, Disponível');
+  const idxTamanho = findHeaderIndex_(headers, ['Tamanho']);
+  const idxQtd = findHeaderIndex_(headers, ['Quantidade']);
+  const idxCor = findHeaderIndex_(headers, ['Cor']);
+  const idxDisponivel = findHeaderIndex_(headers, ['Disponivel', 'Dispon?vel']);
+  if ([idxTamanho, idxQtd, idxCor, idxDisponivel].includes(-1)) {
+    throw new Error('A aba Estoque precisa conter: Tamanho, Quantidade, Cor e Disponivel');
   }
-
   const stockRows = stockData.slice(1).map((row, i) => ({
     rowIndex: i + 2,
     tamanho: String(row[idxTamanho] || '').trim(),
     cor: String(row[idxCor] || '').trim(),
-    quantidade: Number(row[idxQtd]) || 0,
-    reserva: Number(row[idxReserva]) || 0
+    quantidade: Number(row[idxQtd]) || 0
   }));
-  const allowedSpecificReserveColors = [...new Set(
-    stockRows
-      .filter(row => row.reserva > 0)
-      .map(row => normalizeText_(row.cor))
-  )];
-
+  const controlMap = getGerencialControlMap_();
   const itemsProcessed = [];
-
   items.forEach((item, index) => {
     const quantidadeSolicitada = Number(item.quantidade) || 0;
     const tamanho = String(item.tamanho || '').trim();
     const cor = String(item.cor || '').trim();
-
-    if (isSpecificReserveClient && !allowedSpecificReserveColors.includes(normalizeText_(cor))) {
-      throw new Error(
-        `A cor ${cor} nao esta habilitada para cliente especifico de reserva.`
-      );
-    }
-
     const exact = findStockMutableRow_(stockRows, tamanho, cor);
-
-    if (exact) {
-      const reservaAtual = Math.max(exact.reserva, 0);
-      const disponivelLivreAtual = Math.max(exact.quantidade - exact.reserva, 0);
-
-      // Regra nova:
-      // - Excecao (cliente especifico de reserva): usa SOMENTE reserva de brinde.
-      // - Nao excecao: usa SOMENTE saldo livre (quantidade - reserva).
-      if (isSpecificReserveClient) {
-        if (!reserveExceptionReason) {
-          throw new Error(
-            `Informe o motivo da excecao de reserva para o item ${index + 1} (${tamanho} | ${cor}).`
-          );
-        }
-
-        if (reserveGlobalRemaining < quantidadeSolicitada) {
-          throw new Error(
-            `Saldo global da reserva insuficiente. Restante: ${reserveGlobalRemaining}. Pedido item ${index + 1}: ${quantidadeSolicitada}.`
-          );
-        }
-
-        if (reservaAtual >= quantidadeSolicitada) {
-          const quantidadeAntes = exact.quantidade;
-          exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
-          exact.reserva = Math.max(exact.reserva - quantidadeSolicitada, 0);
-          reserveGlobalRemaining -= quantidadeSolicitada;
-          reserveGlobalUsedTotal += quantidadeSolicitada;
-          const quantidadeDepois = exact.quantidade;
-
-          itemsProcessed.push({
-            ordem: index + 1,
-            tamanho,
-            cor,
-            chave: `${tamanho} | ${cor}`,
-            quantidadeSolicitada,
-            quantidadeAtendida: quantidadeSolicitada,
-            statusItem: 'RESERVADO',
-            alternativaSugerida: '',
-            observacao: 'Item reservado com uso da reserva de brinde (excecao).',
-            aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
-            aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
-            origemAbatimento: 'RESERVA',
-            quantidadeDaReserva: quantidadeSolicitada,
-            quantidadeDoDisponivel: 0,
-            excecaoReserva: 'SIM',
-            motivoExcecaoReserva: reserveExceptionReason,
-            abateReservaGlobal: quantidadeSolicitada,
-            quantidadeAntes,
-            quantidadeDepois
-          });
-          return;
-        }
-      } else if (disponivelLivreAtual >= quantidadeSolicitada) {
-        const quantidadeAntes = exact.quantidade;
-        exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
-        const quantidadeDepois = exact.quantidade;
-
-        itemsProcessed.push({
-          ordem: index + 1,
-          tamanho,
-          cor,
-          chave: `${tamanho} | ${cor}`,
-          quantidadeSolicitada,
-          quantidadeAtendida: quantidadeSolicitada,
-          statusItem: 'RESERVADO',
-          alternativaSugerida: '',
-          observacao: 'Item reservado com sucesso.',
-          aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NÃO',
-          aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NÃO',
-          origemAbatimento: 'DISPONIVEL',
-          quantidadeDaReserva: 0,
-          quantidadeDoDisponivel: quantidadeSolicitada,
-          excecaoReserva: 'NÃO',
-          motivoExcecaoReserva: '',
-          abateReservaGlobal: 0,
-          quantidadeAntes,
-          quantidadeDepois
-        });
-        return;
-      }
+    if (!exact) {
+      throw new Error(`Item ${index + 1} (${tamanho} | ${cor}) nao encontrado na aba Estoque.`);
     }
-
-    if (isSpecificReserveClient) {
-      throw new Error(
-        `Item ${index + 1} (${tamanho} | ${cor}) sem saldo suficiente na reserva de brinde.`
-      );
+    const chave = `${tamanho} | ${cor}`;
+    const controlaSaldo = getControlFlagByKey_(controlMap, chave);
+    const quantidadeAntes = exact.quantidade;
+    if (controlaSaldo && exact.quantidade >= quantidadeSolicitada) {
+      exact.quantidade = Math.max(exact.quantidade - quantidadeSolicitada, 0);
+      itemsProcessed.push({
+        ordem: index + 1,
+        tamanho,
+        cor,
+        chave,
+        quantidadeSolicitada,
+        quantidadeAtendida: quantidadeSolicitada,
+        statusItem: 'ATENDIDO',
+        alternativaSugerida: '',
+        observacao: 'Item atendido com saldo da aba Estoque.',
+        aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NAO',
+        aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NAO',
+        origemAbatimento: 'ESTOQUE',
+        quantidadeDaReserva: 0,
+        quantidadeDoDisponivel: quantidadeSolicitada,
+        excecaoReserva: 'NAO',
+        motivoExcecaoReserva: '',
+        abateReservaGlobal: 0,
+        quantidadeAntes,
+        quantidadeDepois: exact.quantidade
+      });
+      return;
     }
-
-    throw new Error(
-      `Item ${index + 1} (${tamanho} | ${cor}) sem saldo disponível para solicitação.`
-    );
+    itemsProcessed.push({
+      ordem: index + 1,
+      tamanho,
+      cor,
+      chave,
+      quantidadeSolicitada,
+      quantidadeAtendida: 0,
+      statusItem: 'SOLICITAR REPOSI??O',
+      alternativaSugerida: '',
+      observacao: controlaSaldo
+        ? 'Saldo insuficiente no estoque inicial. Item enviado para reposi??o.'
+        : 'Controle de saldo desabilitado na aba Gerencial. Item enviado para reposi??o.',
+      aceitaTamanhoAlternativo: item.aceitaTamanhoAlternativo ? 'SIM' : 'NAO',
+      aceitaOutraCor: item.aceitaOutraCor ? 'SIM' : 'NAO',
+      origemAbatimento: 'NAO_ABATIDO',
+      quantidadeDaReserva: 0,
+      quantidadeDoDisponivel: 0,
+      excecaoReserva: 'NAO',
+      motivoExcecaoReserva: '',
+      abateReservaGlobal: 0,
+      quantidadeAntes,
+      quantidadeDepois: quantidadeAntes
+    });
   });
-
   stockRows.forEach(row => {
     stockSheet.getRange(row.rowIndex, idxQtd + 1).setValue(row.quantidade);
-    stockSheet.getRange(row.rowIndex, idxReserva + 1).setValue(row.reserva);
   });
-
-  return {
-    itemsProcessed,
-    reserveGlobalUsedTotal
-  };
+  syncStockDisponivelFromQuantidadeReserva_(stockSheet);
+  return { itemsProcessed };
 }
-
 function saveProofFile_(proofFile, requestId, nomeCompleto) {
   if (!proofFile) throw new Error('Comprovante não informado.');
 
@@ -1345,92 +1170,62 @@ function updateGerencialSheet_() {
   const stockSheet = ss.getSheetByName(STOCK_SHEET_NAME);
   const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
   const gerencialSheet = ss.getSheetByName(GERENCIAL_SHEET_NAME);
-
   const stockData = stockSheet.getDataRange().getValues();
   const stockHeaders = stockData[0];
-
-  const idxTamanho = stockHeaders.indexOf('Tamanho');
-  const idxQtd = stockHeaders.indexOf('Quantidade');
-  const idxCor = stockHeaders.indexOf('Cor');
-  const idxReserva = stockHeaders.indexOf('Reserva Brinde');
-  const idxDisponivel = stockHeaders.indexOf('Disponível');
-
+  const idxTamanho = findHeaderIndex_(stockHeaders, ['Tamanho']);
+  const idxQtd = findHeaderIndex_(stockHeaders, ['Quantidade']);
+  const idxCor = findHeaderIndex_(stockHeaders, ['Cor']);
+  const idxDisponivel = findHeaderIndex_(stockHeaders, ['Disponivel', 'Dispon?vel']);
+  const previousControlMap = getGerencialControlMap_();
   const itemsData = itemsSheet.getDataRange().getValues();
   const itemHeaders = itemsData[0];
-
-  const idxItemChave = itemHeaders.indexOf('Chave');
-  const idxItemQtdSolicitada = itemHeaders.indexOf('Quantidade Solicitada');
-  const idxItemQtdAtendida = itemHeaders.indexOf('Quantidade Atendida');
-  const idxItemStatus = itemHeaders.indexOf('Status Item');
-  const idxItemQtdReserva = findHeaderIndex_(itemHeaders, ['Quantidade da Reserva']);
-
+  const idxItemChave = findHeaderIndex_(itemHeaders, ['Chave']);
+  const idxItemQtdSolicitada = findHeaderIndex_(itemHeaders, ['Quantidade Solicitada']);
+  const idxItemQtdAtendida = findHeaderIndex_(itemHeaders, ['Quantidade Atendida']);
+  const idxItemStatus = findHeaderIndex_(itemHeaders, ['Status Item']);
   const itemStats = {};
-
   itemsData.slice(1).forEach(row => {
     const chave = String(row[idxItemChave] || '').trim();
     const qtdSolicitada = Number(row[idxItemQtdSolicitada]) || 0;
     const qtdAtendida = Number(row[idxItemQtdAtendida]) || 0;
     const status = String(row[idxItemStatus] || '').trim();
-
     if (!chave) return;
-
-    if (!itemStats[chave]) {
-      itemStats[chave] = {
-        solicitacoes: 0,
-        reservados: 0,
-        alternativas: 0,
-        reposicoes: 0
-      };
-    }
-
+    if (!itemStats[chave]) itemStats[chave] = { solicitacoes: 0, atendidos: 0, reposicoes: 0 };
     itemStats[chave].solicitacoes += qtdSolicitada;
-    if (status === 'RESERVADO') itemStats[chave].reservados += qtdAtendida;
-    if (status === 'SUGERIR ALTERNATIVA') itemStats[chave].alternativas += qtdSolicitada;
-    if (status === 'SOLICITAR REPOSIÇÃO') itemStats[chave].reposicoes += qtdSolicitada;
-    if (status === 'RESERVADO' && idxItemQtdReserva >= 0) {
-      const qtdDaReserva = Number(row[idxItemQtdReserva]) || 0;
-      if (qtdDaReserva > 0) itemStats[chave].reposicoes += qtdDaReserva;
-    }
+    if (status === 'ATENDIDO') itemStats[chave].atendidos += qtdAtendida;
+    if (status === 'SOLICITAR REPOSI??O') itemStats[chave].reposicoes += qtdSolicitada;
   });
-
   const output = [[
     'Tamanho',
     'Cor',
     'Chave',
+    'Controla Saldo',
     'Quantidade Atual',
-    'Reserva Brinde',
-    'Disponível',
-    'Solicitações',
-    'Reservados',
-    'Sugestões Alternativa',
-    'Reposição'
+    'Disponivel',
+    'Solicitacoes',
+    'Atendidos',
+    'Sugestoes Alternativa',
+    'Reposicao'
   ]];
-
   stockData.slice(1).forEach(row => {
     const tamanho = String(row[idxTamanho] || '').trim();
     const cor = String(row[idxCor] || '').trim();
     const chave = `${tamanho} | ${cor}`;
-    const stats = itemStats[chave] || {
-      solicitacoes: 0,
-      reservados: 0,
-      alternativas: 0,
-      reposicoes: 0
-    };
-
+    const stats = itemStats[chave] || { solicitacoes: 0, atendidos: 0, reposicoes: 0 };
+    const controlaSaldo = getControlFlagByKey_(previousControlMap, chave);
     output.push([
       tamanho,
       cor,
       chave,
+      controlaSaldo ? 'SIM' : 'NAO',
       Number(row[idxQtd]) || 0,
-      Number(row[idxReserva]) || 0,
       Number(row[idxDisponivel]) || 0,
       stats.solicitacoes,
-      stats.reservados,
-      stats.alternativas,
+      stats.atendidos,
+      0,
       stats.reposicoes
     ]);
   });
-
   gerencialSheet.clear();
   gerencialSheet.getRange(1, 1, output.length, output[0].length).setValues(output);
   gerencialSheet.getRange(1, 1, 1, output[0].length)
@@ -1439,7 +1234,6 @@ function updateGerencialSheet_() {
     .setFontColor('#ffffff');
   gerencialSheet.autoResizeColumns(1, output[0].length);
 }
-
 function sendOrderStatusEmail_(params) {
   const to = params.to;
   const nome = params.nomeCompleto || 'Solicitante';
@@ -1529,37 +1323,25 @@ function sendOrderStatusEmail_(params) {
 }
 
 function buildMainStatus_(itemsProcessed) {
-  const allReserved = itemsProcessed.every(i => i.statusItem === 'RESERVADO');
-  const hasAlternative = itemsProcessed.some(i => i.statusItem === 'SUGERIR ALTERNATIVA');
-  const hasReposicao = itemsProcessed.some(i => i.statusItem === 'SOLICITAR REPOSIÇÃO');
-
-  if (allReserved) {
+  const allAtendidos = itemsProcessed.every(i => i.statusItem === 'ATENDIDO');
+  const hasReposicao = itemsProcessed.some(i => i.statusItem === 'SOLICITAR REPOSI??O');
+  if (allAtendidos) {
     return {
-      statusGeral: 'RESERVADO',
-      observacaoGeral: 'Todos os itens foram reservados com sucesso.'
+      statusGeral: 'ATENDIDO',
+      observacaoGeral: 'Todos os itens foram atendidos com saldo da aba Estoque.'
     };
   }
-
-  if (hasAlternative && !hasReposicao) {
+  if (hasReposicao) {
     return {
-      statusGeral: 'SUGERIR ALTERNATIVA',
-      observacaoGeral: 'Há itens sem saldo suficiente com alternativa sugerida.'
+      statusGeral: 'SOLICITAR REPOSI??O',
+      observacaoGeral: 'Ha itens pendentes de compra por falta de saldo no estoque controlado.'
     };
   }
-
-  if (hasReposicao && !hasAlternative) {
-    return {
-      statusGeral: 'SOLICITAR REPOSIÇÃO',
-      observacaoGeral: 'Há itens sem saldo suficiente e sem alternativa disponível.'
-    };
-  }
-
   return {
     statusGeral: 'PROCESSAMENTO PARCIAL',
-    observacaoGeral: 'A solicitação contém itens reservados, alternativas e ou necessidade de reposição.'
+    observacaoGeral: 'A solicitacao contem itens atendidos e itens pendentes de reposicao.'
   };
 }
-
 function buildOrderSummary_(itemsProcessed) {
   return itemsProcessed.map(item =>
     `${item.quantidadeSolicitada}x ${item.tamanho} | ${item.cor} [${item.statusItem}]`
@@ -1568,52 +1350,38 @@ function buildOrderSummary_(itemsProcessed) {
 
 function updateMainRequestStatusByItems_(requestId, responseSheet, itemsSheet) {
   if (!requestId || !responseSheet || !itemsSheet) return;
-
   const itemsData = itemsSheet.getDataRange().getValues();
   const itemHeaders = itemsData[0] || [];
-  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxItemRequestId = findHeaderIndex_(itemHeaders, ['ID Solicitacao', 'ID Solicita??o']);
   const idxItemStatus = findHeaderIndex_(itemHeaders, ['Status Item']);
-
   if (idxItemRequestId < 0 || idxItemStatus < 0) return;
-
   const statuses = itemsData
     .slice(1)
     .filter(row => String(row[idxItemRequestId] || '').trim() === requestId)
     .map(row => String(row[idxItemStatus] || '').trim())
     .filter(Boolean);
-
   if (!statuses.length) return;
-
-  const hasReposicaoPendente = statuses.includes('SOLICITAR REPOSIÇÃO');
-  const hasAlternativa = statuses.includes('SUGERIR ALTERNATIVA');
-  const hasReposicaoQuitada = statuses.includes('REPOSIÇÃO QUITADA');
-  const allReserved = statuses.every(status => status === 'RESERVADO');
-
+  const hasReposicaoPendente = statuses.includes('SOLICITAR REPOSI??O');
+  const hasReposicaoQuitada = statuses.includes('REPOSI??O QUITADA');
+  const allAtendidos = statuses.every(status => status === 'ATENDIDO');
   let statusGeral = 'PROCESSAMENTO PARCIAL';
-  let observacaoGeral = 'A solicitação contém múltiplos status de atendimento.';
-
+  let observacaoGeral = 'A solicitacao contem multiplos status de atendimento.';
   if (hasReposicaoPendente) {
-    statusGeral = 'SOLICITAR REPOSIÇÃO';
-    observacaoGeral = 'Há itens pendentes de reposição.';
-  } else if (hasAlternativa) {
-    statusGeral = 'SUGERIR ALTERNATIVA';
-    observacaoGeral = 'Há itens aguardando decisão sobre alternativa.';
-  } else if (allReserved) {
-    statusGeral = 'RESERVADO';
-    observacaoGeral = 'Todos os itens foram reservados com sucesso.';
+    statusGeral = 'SOLICITAR REPOSI??O';
+    observacaoGeral = 'Ha itens pendentes de reposicao.';
+  } else if (allAtendidos) {
+    statusGeral = 'ATENDIDO';
+    observacaoGeral = 'Todos os itens foram atendidos com saldo da aba Estoque.';
   } else if (hasReposicaoQuitada) {
-    statusGeral = 'REPOSIÇÃO QUITADA';
-    observacaoGeral = 'Reposição quitada e estoque atualizado.';
+    statusGeral = 'REPOSI??O QUITADA';
+    observacaoGeral = 'Reposicao quitada e estoque atualizado.';
   }
-
   const responseData = responseSheet.getDataRange().getValues();
   const responseHeaders = responseData[0] || [];
-  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicitação']);
+  const idxRequestId = findHeaderIndex_(responseHeaders, ['ID Solicitacao', 'ID Solicita??o']);
   const idxStatusGeral = findHeaderIndex_(responseHeaders, ['Status Geral', 'Status Estoque']);
-  const idxObservacaoGeral = findHeaderIndex_(responseHeaders, ['Observação Geral', 'Observacao Geral', 'Observação Estoque', 'Observacao Estoque']);
-
+  const idxObservacaoGeral = findHeaderIndex_(responseHeaders, ['Observa??o Geral', 'Observacao Geral', 'Observa??o Estoque', 'Observacao Estoque']);
   if (idxRequestId < 0 || idxStatusGeral < 0 || idxObservacaoGeral < 0) return;
-
   for (let i = 1; i < responseData.length; i++) {
     const currentRequestId = String(responseData[i][idxRequestId] || '').trim();
     if (currentRequestId !== requestId) continue;
@@ -1622,7 +1390,6 @@ function updateMainRequestStatusByItems_(requestId, responseSheet, itemsSheet) {
     break;
   }
 }
-
 function findStockMutableRow_(stockRows, tamanho, cor) {
   return stockRows.find(row =>
     normalizeText_(row.tamanho) === normalizeText_(tamanho) &&
@@ -1821,26 +1588,18 @@ function ensureHeaders_(sheet, requiredHeaders) {
 function syncStockDisponivelFromQuantidadeReserva_(stockSheet) {
   const data = stockSheet.getDataRange().getValues();
   const headers = data[0] || [];
-
   const idxQtd = findHeaderIndex_(headers, ['Quantidade']);
-  const idxReserva = findHeaderIndex_(headers, ['Reserva Brinde']);
-  const idxDisponivel = findHeaderIndex_(headers, ['Disponível', 'Disponivel']);
-
-  if ([idxQtd, idxReserva, idxDisponivel].includes(-1)) {
-    throw new Error('A aba Estoque precisa conter Quantidade, Reserva Brinde e Disponível.');
+  const idxDisponivel = findHeaderIndex_(headers, ['Dispon?vel', 'Disponivel']);
+  if ([idxQtd, idxDisponivel].includes(-1)) {
+    throw new Error('A aba Estoque precisa conter Quantidade e Disponivel.');
   }
-
   if (data.length < 2) return;
-
   const output = data.slice(1).map(row => {
     const quantidade = Number(row[idxQtd]) || 0;
-    const reserva = Number(row[idxReserva]) || 0;
-    return [Math.max(quantidade - reserva, 0)];
+    return [Math.max(quantidade, 0)];
   });
-
   stockSheet.getRange(2, idxDisponivel + 1, output.length, 1).setValues(output);
 }
-
 function setValueByHeader_(rowArray, headers, headerName, value) {
   const idx = findHeaderIndex_(headers, [headerName]);
   if (idx >= 0) rowArray[idx] = value;
@@ -1914,40 +1673,44 @@ function normalizeText_(value) {
 }
 
 function getReserveGlobalStatus_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const itemsSheet = ss.getSheetByName(ITEMS_SHEET_NAME);
-  if (!itemsSheet) {
-    return {
-      initial: RESERVE_GLOBAL_INITIAL,
-      consumed: 0,
-      remaining: RESERVE_GLOBAL_INITIAL
-    };
-  }
-
-  const data = itemsSheet.getDataRange().getValues();
-  const headers = data[0] || [];
-  const idxAbateReservaGlobal = findHeaderIndex_(headers, ['Abate Reserva Global']);
-
-  if (idxAbateReservaGlobal < 0) {
-    return {
-      initial: RESERVE_GLOBAL_INITIAL,
-      consumed: 0,
-      remaining: RESERVE_GLOBAL_INITIAL
-    };
-  }
-
-  const consumed = data.slice(1).reduce((sum, row) => {
-    const value = Number(row[idxAbateReservaGlobal]) || 0;
-    return sum + Math.max(value, 0);
-  }, 0);
-
   return {
-    initial: RESERVE_GLOBAL_INITIAL,
-    consumed,
-    remaining: Math.max(RESERVE_GLOBAL_INITIAL - consumed, 0)
+    initial: 0,
+    consumed: 0,
+    remaining: 0
   };
 }
-
+function getGerencialControlMap_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const gerencialSheet = ss.getSheetByName(GERENCIAL_SHEET_NAME);
+  if (!gerencialSheet || gerencialSheet.getLastRow() < 2) return {};
+  const data = gerencialSheet.getDataRange().getValues();
+  const headers = data[0] || [];
+  const idxKey = findHeaderIndex_(headers, ['Chave']);
+  const idxSize = findHeaderIndex_(headers, ['Tamanho']);
+  const idxColor = findHeaderIndex_(headers, ['Cor']);
+  const idxControl = findHeaderIndex_(headers, ['Controla Saldo']);
+  const map = {};
+  if (idxControl < 0) return map;
+  data.slice(1).forEach(row => {
+    const key = idxKey >= 0
+      ? String(row[idxKey] || '').trim()
+      : `${String(row[idxSize] || '').trim()} | ${String(row[idxColor] || '').trim()}`;
+    if (!key) return;
+    map[key] = parseControlFlag_(row[idxControl]);
+  });
+  return map;
+}
+function getControlFlagByKey_(controlMap, key) {
+  if (controlMap && Object.prototype.hasOwnProperty.call(controlMap, key)) {
+    return !!controlMap[key];
+  }
+  return true;
+}
+function parseControlFlag_(value) {
+  const normalized = normalizeText_(value);
+  if (!normalized) return true;
+  return ['NAO', 'N?O', 'FALSE', '0'].indexOf(normalized) === -1;
+}
 function escapeHtml_(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')

@@ -1,24 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MOCK_STOCK } from '../data/mockData';
 import { fetchDashboardData, isMockApiEnabled, markOrderDelivered, markOrderStockSettled, settleReplenishment } from '../services/api';
 import type { DashboardData, DashboardOrder } from '../types/api';
 
 function buildMockDashboardData(): DashboardData {
   const totalFisico = MOCK_STOCK.reduce((acc, curr) => acc + curr.quantidade, 0);
-  const totalReserva = MOCK_STOCK.reduce((acc, curr) => acc + curr.reserva, 0);
   const totalDisponivel = MOCK_STOCK.reduce((acc, curr) => acc + curr.disponivel, 0);
-  const totalDisponivelReal = MOCK_STOCK.reduce((acc, curr) => acc + Math.max(curr.quantidade - curr.reserva, 0), 0);
   const totalReservados = MOCK_STOCK.reduce((acc, curr) => acc + curr.reservados, 0);
-
-  const totalBrancaDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Branca').reduce((acc, curr) => acc + curr.disponivel, 0);
-  const totalPretaDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Preta').reduce((acc, curr) => acc + curr.disponivel, 0);
-  const totalAzulDisponivel = MOCK_STOCK.filter((s) => s.cor === 'Azul').reduce((acc, curr) => acc + curr.disponivel, 0);
-
-  const totalAlternativa = MOCK_STOCK.reduce((acc, curr) => acc + curr.alternativas, 0);
   const totalReposicao = MOCK_STOCK.reduce((acc, curr) => acc + curr.reposicoes, 0);
-  const totalCamisasAEntregar = 2;
-  const totalCamisasEntregues = 0;
-  const totalCamisasPendentesEntrega = 2;
 
   return {
     logoUrl: '',
@@ -26,271 +15,56 @@ function buildMockDashboardData(): DashboardData {
     atualizadoEm: 'Mock local',
     indicadores: {
       totalFisico,
-      totalReserva,
+      totalReserva: 0,
       totalDisponivel,
-      totalDisponivelReal,
-      totalDisponivelGap: totalDisponivelReal - totalDisponivel,
-      totalBrancaDisponivel,
-      totalPretaDisponivel,
-      totalAzulDisponivel,
+      totalDisponivelReal: totalDisponivel,
+      totalDisponivelGap: 0,
+      totalBrancaDisponivel: MOCK_STOCK.filter((row) => row.cor === 'Branca').reduce((acc, curr) => acc + curr.disponivel, 0),
+      totalPretaDisponivel: MOCK_STOCK.filter((row) => row.cor === 'Preta').reduce((acc, curr) => acc + curr.disponivel, 0),
+      totalAzulDisponivel: MOCK_STOCK.filter((row) => row.cor === 'Azul').reduce((acc, curr) => acc + curr.disponivel, 0),
       totalReservados,
-      totalAlternativa,
+      totalAlternativa: 0,
       totalReposicao,
-      totalCamisasAEntregar,
-      totalCamisasEntregues,
-      totalCamisasPendentesEntrega,
+      totalCamisasAEntregar: MOCK_STOCK.reduce((acc, curr) => acc + curr.solicitacoes, 0),
+      totalCamisasEntregues: 0,
+      totalCamisasPendentesEntrega: MOCK_STOCK.reduce((acc, curr) => acc + curr.solicitacoes, 0),
     },
-    tabelaGerencial: MOCK_STOCK.map((row) => ({
-      tamanho: row.tamanho,
-      cor: row.cor,
-      quantidade: row.quantidade,
-      reserva: row.reserva,
-      disponivel: row.disponivel,
-      solicitacoes: row.solicitacoes,
-      reservados: row.reservados,
-      alternativas: row.alternativas,
-      reposicoes: row.reposicoes,
-    })),
-    pedidos: [
-      {
-        requestId: 'SOL-20260416-101000',
-        dataHora: '16/04/2026 10:10:00',
-        nomeCompleto: 'Maria Souza',
-        email: 'maria@email.com',
-        equipe: 'Banda',
-        resumoPedido: '1x P | Branca [RESERVADO] ; 1x M | Azul [RESERVADO]',
-        statusGeral: 'RESERVADO',
-        statusEntrega: 'PENDENTE',
-        entregueEm: '',
-        statusBaixaEstoque: 'PENDENTE',
-        baixaEstoqueEm: '',
-        items: [
-          { ordemItem: 1, tamanho: 'P', cor: 'Branca', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '', statusBaixaItem: 'PENDENTE', baixaItemEm: '' },
-          { ordemItem: 2, tamanho: 'M', cor: 'Azul', quantidadeSolicitada: 1, quantidadeAtendida: 1, statusItem: 'RESERVADO', alternativaSugerida: '', statusBaixaItem: 'PENDENTE', baixaItemEm: '' },
-        ],
-      },
-      {
-        requestId: 'SOL-20260416-111500',
-        dataHora: '16/04/2026 11:15:00',
-        nomeCompleto: 'Joao Lima',
-        email: 'joao@email.com',
-        equipe: 'Sala',
-        resumoPedido: '2x GG | Preta [SUGERIR ALTERNATIVA]',
-        statusGeral: 'SUGERIR ALTERNATIVA',
-        statusEntrega: 'ENTREGUE',
-        entregueEm: '16/04/2026 18:42:00',
-        statusBaixaEstoque: 'CONFIRMADA',
-        baixaEstoqueEm: '16/04/2026 12:42:00',
-        items: [
-          { ordemItem: 1, tamanho: 'GG', cor: 'Preta', quantidadeSolicitada: 2, quantidadeAtendida: 0, statusItem: 'SUGERIR ALTERNATIVA', alternativaSugerida: 'XG | Preta', statusBaixaItem: 'CONFIRMADA', baixaItemEm: '16/04/2026 12:42:00' },
-        ],
-      },
-    ],
+    tabelaGerencial: MOCK_STOCK.map((row) => ({ ...row, controlaSaldo: true })),
+    pedidos: [],
   };
 }
 
-type FilterIndicator = 
-  | 'totalFisico'
-  | 'totalReserva'
-  | 'totalDisponivel'
-  | 'totalDisponivelReal'
-  | 'totalDisponivelGap'
-  | 'totalBrancaDisponivel'
-  | 'totalPretaDisponivel'
-  | 'totalAzulDisponivel'
-  | 'totalReservados'
-  | 'totalAlternativa'
-  | 'totalReposicao'
-  | 'totalCamisasAEntregar'
-  | 'totalCamisasEntregues'
-  | 'totalCamisasPendentesEntrega'
-  | null;
+const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+const isReplenishmentStatus = (status: string) => normalizeText(status).includes('REPOSI');
 
-type IndicatorKey = Exclude<FilterIndicator, null>;
-
-type IndicatorConfig = {
-  label: string;
-  title: string;
-  description: string;
-  filterRows: (rows: DashboardData['tabelaGerencial']) => DashboardData['tabelaGerencial'];
-  getValue: (rows: DashboardData['tabelaGerencial']) => number;
-};
-
-const sumBy = (rows: DashboardData['tabelaGerencial'], selector: (row: DashboardData['tabelaGerencial'][number]) => number) =>
-  rows.reduce((acc, row) => acc + selector(row), 0);
-
-const normalizeColor = (value: string) =>
-  value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-
-const isWhiteColor = (value: string) => {
-  const normalized = normalizeColor(value);
-  return normalized === 'branca' || normalized === 'branco' || normalized === 'white';
-};
-
-const normalizeDashboardColor = (value: string): 'Branca' | 'Azul' | 'Preta' | null => {
-  const normalized = normalizeColor(value);
-  if (normalized === 'azul' || normalized === 'blue') return 'Azul';
-  if (normalized === 'preta' || normalized === 'preto' || normalized === 'black') return 'Preta';
-  if (normalized === 'branca' || normalized === 'branco' || normalized === 'white') return 'Branca';
-  return null;
-};
-
-const sizeRank = (size: string) => {
-  const order = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'];
-  const index = order.indexOf((size || '').toUpperCase());
-  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
-};
-
-const INDICATOR_ORDER: IndicatorKey[] = [
-  'totalFisico',
-  'totalReserva',
-  'totalDisponivel',
-  'totalDisponivelReal',
-  'totalDisponivelGap',
-  'totalReservados',
-  'totalBrancaDisponivel',
-  'totalPretaDisponivel',
-  'totalAzulDisponivel',
-  'totalAlternativa',
-  'totalReposicao',
-  'totalCamisasAEntregar',
-  'totalCamisasEntregues',
-  'totalCamisasPendentesEntrega',
-];
-
-const INDICATOR_CONFIG: Record<IndicatorKey, IndicatorConfig> = {
-  totalFisico: {
-    label: 'Estoque Fisico Total',
-    title: 'Estoque Fisico Total',
-    description: 'Mostrando tamanhos/cores com estoque fisico acima de zero.',
-    filterRows: (rows) => rows.filter((row) => row.quantidade > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.quantidade),
-  },
-  totalReserva: {
-    label: 'Reserva Brinde Total',
-    title: 'Reserva Brinde Total',
-    description: 'Filtrando apenas os tamanhos/cores que possuem camisas reservadas como brinde.',
-    filterRows: (rows) => rows.filter((row) => row.reserva > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.reserva),
-  },
-  totalDisponivel: {
-    label: 'Disponivel Total',
-    title: 'Disponivel Total',
-    description: 'Filtrando apenas os tamanhos/cores que possuem camisas disponiveis para venda.',
-    filterRows: (rows) => rows.filter((row) => row.disponivel > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.disponivel),
-  },
-  totalDisponivelReal: {
-    label: 'Disponivel Real',
-    title: 'Disponivel Real (Quantidade - Reserva)',
-    description: 'Saldo calculado em tempo real pela regra: Quantidade - Reserva Brinde.',
-    filterRows: (rows) => rows.filter((row) => (row.quantidade - row.reserva) !== 0),
-    getValue: (rows) => sumBy(rows, (row) => row.quantidade - row.reserva),
-  },
-  totalDisponivelGap: {
-    label: 'Gap Real x Informado',
-    title: 'Gap de Disponivel',
-    description: 'Diferenca entre disponivel real calculado e o disponivel informado na planilha.',
-    filterRows: (rows) => rows.filter((row) => (row.quantidade - row.reserva - row.disponivel) !== 0),
-    getValue: (rows) => sumBy(rows, (row) => (row.quantidade - row.reserva - row.disponivel)),
-  },
-  totalBrancaDisponivel: {
-    label: 'Disponivel Branca',
-    title: 'Disponivel Brancas',
-    description: 'Filtrando apenas camisas BRANCAS que estao disponiveis para venda.',
-    filterRows: (rows) => rows.filter((row) => isWhiteColor(row.cor) && row.disponivel > 0),
-    getValue: (rows) => sumBy(rows.filter((row) => isWhiteColor(row.cor)), (row) => row.disponivel),
-  },
-  totalPretaDisponivel: {
-    label: 'Disponivel Preta',
-    title: 'Disponivel Pretas',
-    description: 'Filtrando apenas camisas PRETAS que estao disponiveis para venda.',
-    filterRows: (rows) => rows.filter((row) => row.cor === 'Preta' && row.disponivel > 0),
-    getValue: (rows) => sumBy(rows.filter((row) => row.cor === 'Preta'), (row) => row.disponivel),
-  },
-  totalAzulDisponivel: {
-    label: 'Disponivel Azul',
-    title: 'Disponivel Azuis',
-    description: 'Filtrando apenas camisas AZUIS que estao disponiveis para venda.',
-    filterRows: (rows) => rows.filter((row) => row.cor === 'Azul' && row.disponivel > 0),
-    getValue: (rows) => sumBy(rows.filter((row) => row.cor === 'Azul'), (row) => row.disponivel),
-  },
-  totalReservados: {
-    label: 'Pedidos Reservados',
-    title: 'Pedidos Reservados',
-    description: 'Filtrando apenas os tamanhos/cores que possuem pedidos em status RESERVADO.',
-    filterRows: (rows) => rows.filter((row) => row.reservados > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.reservados),
-  },
-  totalAlternativa: {
-    label: 'Pedidos c/ Alternativa',
-    title: 'Pedidos c/ Alternativa',
-    description: 'Filtrando apenas os tamanhos/cores com pedidos aguardando resposta sobre alternativa.',
-    filterRows: (rows) => rows.filter((row) => row.alternativas > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.alternativas),
-  },
-  totalReposicao: {
-    label: 'Pedidos em Reposicao',
-    title: 'Pedidos em Reposicao',
-    description: 'Filtrando apenas os tamanhos/cores com pedidos em status de REPOSICAO.',
-    filterRows: (rows) => rows.filter((row) => row.reposicoes > 0),
-    getValue: (rows) => sumBy(rows, (row) => row.reposicoes),
-  },
-  totalCamisasAEntregar: {
-    label: 'Camisas a Entregar',
-    title: 'Camisas a Entregar',
-    description: 'Total de camisas solicitadas (demanda total a realizar, incluindo reposição).',
-    filterRows: (rows) => rows,
-    getValue: () => 0,
-  },
-  totalCamisasEntregues: {
-    label: 'Camisas Entregues',
-    title: 'Camisas Entregues',
-    description: 'Total de camisas solicitadas em pedidos já marcados como entregues.',
-    filterRows: (rows) => rows,
-    getValue: () => 0,
-  },
-  totalCamisasPendentesEntrega: {
-    label: 'Falta Entregar',
-    title: 'Camisas Pendentes',
-    description: 'Diferença entre camisas a realizar e camisas já entregues.',
-    filterRows: (rows) => rows,
-    getValue: () => 0,
-  },
-};
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-white rounded-[16px] border border-border-color p-4">
+      <div className="text-[12px] text-text-muted uppercase font-semibold">{label}</div>
+      <div className="mt-2 text-[28px] font-black text-primary">{value}</div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
-  type ActiveTab = 'detalhamento' | 'estoqueReposicao' | 'pedidos';
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('detalhamento');
   const [searchName, setSearchName] = useState('');
-  const [orderSort, setOrderSort] = useState<'oldest' | 'newest'>('oldest');
+  const [orderSort, setOrderSort] = useState<'oldest' | 'newest'>('newest');
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const [stockSettlingId, setStockSettlingId] = useState<string | null>(null);
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
-  const [filterIndicator, setFilterIndicator] = useState<FilterIndicator>(null);
-  const [colorFilter, setColorFilter] = useState('');
-  const lastPointerToggleAtRef = useRef(0);
-  const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
 
   const load = async () => {
     setLoading(true);
     setError(null);
-
     try {
       if (isMockApiEnabled()) {
         setData(buildMockDashboardData());
         return;
       }
-
-      const result = await fetchDashboardData();
-      setData(result);
+      setData(await fetchDashboardData());
     } catch (err) {
       setData(buildMockDashboardData());
       setError(err instanceof Error ? `${err.message} Exibindo dados mock.` : 'Falha no dashboard. Exibindo dados mock.');
@@ -303,168 +77,19 @@ export default function Dashboard() {
     load();
   }, []);
 
-  const getStockClass = (value: number) => {
-    if (value <= 2) return 'text-danger font-bold';
-    if (value <= 5) return 'text-[#b45309] font-bold';
-    return 'text-success font-bold';
-  };
-
-  const normalizeText = (value: string) =>
-    value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
-
-  const parsePtBrDateTime = (value: string) => {
-    const raw = (value || '').trim();
-    if (!raw) return 0;
-    const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
-    if (!match) return 0;
-
-    const [, dd, mm, yyyy, hh = '00', min = '00', ss = '00'] = match;
-    return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min), Number(ss)).getTime();
-  };
-
-  const filteredTable = useMemo(() => {
-    if (!data) return [];
-    if (!filterIndicator) return data.tabelaGerencial;
-    return INDICATOR_CONFIG[filterIndicator].filterRows(data.tabelaGerencial);
-  }, [data, filterIndicator]);
-
-  const availableColors = useMemo(() => {
-    const rows = data?.tabelaGerencial ?? [];
-    const colors = rows
-      .map((row) => row.cor)
-      .filter((color): color is string => typeof color === 'string' && color.trim().length > 0);
-    return [...new Set<string>(colors)]
-      .sort((a: string, b: string) => a.localeCompare(b, 'pt-BR'));
-  }, [data]);
-
-  const filteredTableByColor = useMemo(() => {
-    if (!colorFilter) return filteredTable;
-    return filteredTable.filter((row) => normalizeColor(row.cor) === normalizeColor(colorFilter));
-  }, [filteredTable, colorFilter]);
-
-  const indicatorValues = useMemo(() => {
-    const rows = data?.tabelaGerencial ?? [];
-    return INDICATOR_ORDER.reduce((acc, indicator) => {
-      if (indicator === 'totalCamisasAEntregar') {
-        acc[indicator] = data?.indicadores.totalCamisasAEntregar ?? 0;
-      } else if (indicator === 'totalCamisasEntregues') {
-        acc[indicator] = data?.indicadores.totalCamisasEntregues ?? 0;
-      } else if (indicator === 'totalCamisasPendentesEntrega') {
-        acc[indicator] = data?.indicadores.totalCamisasPendentesEntrega ?? 0;
-      } else {
-        acc[indicator] = INDICATOR_CONFIG[indicator].getValue(rows);
-      }
-      return acc;
-    }, {} as Record<IndicatorKey, number>);
-  }, [data]);
-
-  const activeFilterInfo = filterIndicator ? INDICATOR_CONFIG[filterIndicator] : null;
-  const activeIndicatorValue = filterIndicator ? indicatorValues[filterIndicator] : null;
-
-  const toggleIndicatorFilter = (indicator: IndicatorKey) => {
-    setFilterIndicator((prev) => (prev === indicator ? null : indicator));
-  };
-
-  const triggerIndicatorFilter = (source: 'pointer' | 'click', indicator: IndicatorKey) => {
-    const now = Date.now();
-
-    // Pointer up is often followed by click, so ignore the duplicated click toggle.
-    if (source === 'click' && now - lastPointerToggleAtRef.current < 250) {
-      return;
-    }
-
-    if (source === 'pointer') {
-      lastPointerToggleAtRef.current = now;
-    }
-
-    toggleIndicatorFilter(indicator);
-  };
-
   const filteredOrders = useMemo(() => {
-    if (!data) return [];
-    const orders = Array.isArray(data.pedidos) ? data.pedidos : [];
+    const rows = data?.pedidos ?? [];
     const needle = normalizeText(searchName);
-    const byName = !needle ? orders : orders.filter((order) => normalizeText(order.nomeCompleto).includes(needle));
-
-    return [...byName].sort((a, b) => {
-      const timeA = parsePtBrDateTime(a.dataHora);
-      const timeB = parsePtBrDateTime(b.dataHora);
-      return orderSort === 'oldest' ? timeA - timeB : timeB - timeA;
-    });
+    const filtered = needle ? rows.filter((order) => normalizeText(order.nomeCompleto).includes(needle)) : rows;
+    return [...filtered].sort((a, b) => (orderSort === 'oldest' ? a.dataHora.localeCompare(b.dataHora) : b.dataHora.localeCompare(a.dataHora)));
   }, [data, searchName, orderSort]);
 
-  const stockPlusReplenishmentBySize = useMemo(() => {
-    const rows = data?.tabelaGerencial ?? [];
-    const grouped = new Map<string, { tamanho: string; Branca: number; Azul: number; Preta: number; total: number }>();
-
-    for (const row of rows) {
-      const normalizedColor = normalizeDashboardColor(row.cor);
-      if (!normalizedColor) continue;
-
-      const sizeKey = (row.tamanho || '').trim().toUpperCase();
-      if (!sizeKey) continue;
-
-      if (!grouped.has(sizeKey)) {
-        grouped.set(sizeKey, { tamanho: sizeKey, Branca: 0, Azul: 0, Preta: 0, total: 0 });
-      }
-
-      const value = Number(row.quantidade || 0) + Number(row.reservados || 0) + Number(row.reposicoes || 0);
-      const current = grouped.get(sizeKey)!;
-      current[normalizedColor] += value;
-      current.total += value;
-    }
-
-    return [...grouped.values()].sort((a, b) => {
-      const rankDiff = sizeRank(a.tamanho) - sizeRank(b.tamanho);
-      if (rankDiff !== 0) return rankDiff;
-      return a.tamanho.localeCompare(b.tamanho, 'pt-BR');
-    });
-  }, [data]);
-
   const handleMarkAsDelivered = async (order: DashboardOrder) => {
-    setError(null);
     setDeliveringId(order.requestId);
-
     try {
-      if (isMockApiEnabled()) {
-        setData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            pedidos: prev.pedidos.map((item) =>
-              item.requestId === order.requestId
-                ? {
-                    ...item,
-                    statusEntrega: 'ENTREGUE',
-                    entregueEm: new Date().toLocaleString('pt-BR'),
-                  }
-                : item,
-            ),
-          };
-        });
-        return;
-      }
-
-      const result = await markOrderDelivered(order.requestId);
-      setData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          pedidos: prev.pedidos.map((item) =>
-            item.requestId === result.requestId
-              ? {
-                  ...item,
-                  statusEntrega: 'ENTREGUE',
-                  entregueEm: result.deliveredAt,
-                }
-              : item,
-          ),
-        };
-      });
+      if (isMockApiEnabled()) return;
+      await markOrderDelivered(order.requestId);
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao marcar pedido como entregue.');
     } finally {
@@ -473,536 +98,162 @@ export default function Dashboard() {
   };
 
   const handleMarkStockSettled = async (order: DashboardOrder) => {
-    setError(null);
     setStockSettlingId(order.requestId);
-
     try {
-      if (isMockApiEnabled()) {
-        const now = new Date().toLocaleString('pt-BR');
-        setData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            pedidos: prev.pedidos.map((item) =>
-              item.requestId === order.requestId
-                ? {
-                    ...item,
-                    statusBaixaEstoque: 'CONFIRMADA',
-                    baixaEstoqueEm: now,
-                    items: item.items.map((currentItem) => ({
-                      ...currentItem,
-                      statusBaixaItem: 'CONFIRMADA',
-                      baixaItemEm: now,
-                    })),
-                  }
-                : item,
-            ),
-          };
-        });
-        return;
-      }
-
-      const result = await markOrderStockSettled(order.requestId);
-      setData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          pedidos: prev.pedidos.map((item) =>
-            item.requestId === result.requestId
-              ? {
-                  ...item,
-                  statusBaixaEstoque: 'CONFIRMADA',
-                  baixaEstoqueEm: result.stockSettledAt,
-                  items: item.items.map((currentItem) => ({
-                    ...currentItem,
-                    statusBaixaItem: 'CONFIRMADA',
-                    baixaItemEm: result.stockSettledAt,
-                  })),
-                }
-              : item,
-          ),
-        };
-      });
+      if (isMockApiEnabled()) return;
+      await markOrderStockSettled(order.requestId);
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao confirmar baixa de estoque.');
+      setError(err instanceof Error ? err.message : 'Falha ao confirmar a baixa de estoque.');
     } finally {
       setStockSettlingId(null);
     }
   };
 
-  const handleSettleReplenishment = async (order: DashboardOrder, itemOrder: number) => {
-    setError(null);
-    const actionKey = `${order.requestId}-${itemOrder}`;
-    setSettlingKey(actionKey);
-
+  const handleSettleReplenishment = async (order: DashboardOrder, ordemItem: number) => {
+    const key = `${order.requestId}-${ordemItem}`;
+    setSettlingKey(key);
     try {
-      if (isMockApiEnabled()) {
-        setData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            pedidos: prev.pedidos.map((currentOrder) => {
-              if (currentOrder.requestId !== order.requestId) return currentOrder;
-              return {
-                ...currentOrder,
-                items: currentOrder.items.map((currentItem) =>
-                  currentItem.ordemItem === itemOrder && currentItem.statusItem === 'SOLICITAR REPOSIÇÃO'
-                    ? {
-                        ...currentItem,
-                        statusItem: 'REPOSIÇÃO QUITADA',
-                        quantidadeAtendida: currentItem.quantidadeSolicitada,
-                      }
-                    : currentItem,
-                ),
-              };
-            }),
-          };
-        });
-        return;
-      }
-
-      await settleReplenishment(order.requestId, itemOrder);
+      if (isMockApiEnabled()) return;
+      await settleReplenishment(order.requestId, ordemItem);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao quitar reposição.');
+      setError(err instanceof Error ? err.message : 'Falha ao quitar reposicao.');
     } finally {
       setSettlingKey(null);
     }
   };
 
-  const MetricCard = ({
-    indicator,
-    label,
-    value,
-    isActive,
-    onClick,
-  }: {
-    indicator: IndicatorKey;
-    label: string;
-    value: number;
-    isActive: boolean;
-    onClick: (source: 'pointer' | 'click', indicator: IndicatorKey) => void;
-  }) => (
-    <button
-      type="button"
-      onPointerUp={(event) => {
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
-        onClick('pointer', indicator);
-      }}
-      onClick={() => onClick('click', indicator)}
-      aria-pressed={isActive}
-      className={`relative z-10 pointer-events-auto border-none cursor-pointer rounded-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all ${
-        isActive
-          ? 'bg-primary text-white ring-2 ring-primary ring-offset-2'
-          : 'bg-white text-text-main hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)]'
-      }`}
-    >
-      <div className={`text-[14px] mb-2 font-medium ${isActive ? 'text-white/80' : 'text-text-muted'}`}>{label}</div>
-      <div
-        className={`text-[28px] font-extrabold ${
-          isActive ? 'text-white' : value < 0 ? 'text-[#b91c1c]' : 'text-primary'
-        }`}
-      >
-        {value}
-      </div>
-      {isActive && (
-        <div className="mt-3 text-[11px] font-semibold text-white bg-white/20 px-2 py-1 rounded inline-block">
-          ✓ Filtro ativo
-        </div>
-      )}
-    </button>
-  );
-
-  if (loading) {
-    return <div className="max-w-[1280px] mx-auto p-6">Carregando dashboard...</div>;
+  if (loading && !data) {
+    return <div className="min-h-screen bg-background p-8 text-text-main">Carregando dashboard...</div>;
   }
 
   if (!data) {
-    return <div className="max-w-[1280px] mx-auto p-6">Nao foi possivel carregar os dados.</div>;
+    return <div className="min-h-screen bg-background p-8 text-text-main">Nao foi possivel carregar o dashboard.</div>;
   }
 
   return (
-    <div className="max-w-[1280px] mx-auto p-4 md:p-6 lg:p-10 pb-10">
-      <div className="bg-primary rounded-t-[16px] p-7 text-center shadow-[0_4px_20px_rgba(0,0,0,0.05)] border-b border-white/10">
-        <img
-          src={data.logoUrl || LOGO_URL}
-          alt="Logo EAC"
-          className="w-20 h-20 object-cover rounded-full border-2 border-white/30 mx-auto mb-2"
-        />
-        <div className="text-white/80 text-sm">Dashboard de Estoque</div>
-      </div>
-
-      <div className="bg-white border border-border-color rounded-b-[16px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.05)] mb-8 border-t-0">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl md:text-[28px] font-bold text-text-main m-0 mb-2 leading-tight">Controle de Camisas</h1>
-            <p className="text-text-muted text-sm m-0">Atualizado em: {data.atualizadoEm}</p>
-          </div>
-          <div className="flex gap-3 w-full md:w-auto">
-            <button
-              onClick={load}
-              className="flex-1 md:flex-none border-none cursor-pointer bg-primary-light text-primary px-5 py-3 rounded-[8px] font-bold text-[14px] hover:bg-opacity-80 transition-opacity"
-            >
-              Atualizar dados
-            </button>
-            <a
-              href={data.instagramUrl || 'https://www.instagram.com/eacporciunculadesantana/'}
-              target="_blank"
-              rel="noreferrer"
-              className="flex-1 md:flex-none text-center bg-primary text-white px-5 py-3 rounded-[8px] font-bold text-[14px] no-underline hover:bg-primary-dark transition-colors"
-            >
-              Instagram do EAC
-            </a>
-          </div>
+    <div className="min-h-screen bg-background p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-[28px] font-black text-text-main m-0">Dashboard de estoque</h1>
+          <p className="mt-2 mb-0 text-text-muted text-[14px]">Estoque inicial por cor e tamanho com reposicao automatica quando faltar saldo.</p>
+          <p className="mt-1 mb-0 text-text-muted text-[12px]">Atualizado em: {data.atualizadoEm}</p>
         </div>
 
         {error && <div className="rounded-xl p-3 mb-4 font-bold text-[13px] bg-[#fff1f1] text-[#9b1c1c] border border-[#fecaca]">{error}</div>}
 
-        <div className="mb-6">
-          <div className="grid grid-cols-3 gap-2 bg-[#F8F9FA] border border-border-color rounded-[12px] p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('detalhamento')}
-              className={`rounded-[8px] px-3 py-2.5 text-[13px] md:text-[14px] font-bold border-none cursor-pointer transition-colors ${
-                activeTab === 'detalhamento' ? 'bg-primary text-white' : 'bg-transparent text-text-main'
-              }`}
-            >
-              Detalhamento
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('estoqueReposicao')}
-              className={`rounded-[8px] px-3 py-2.5 text-[13px] md:text-[14px] font-bold border-none cursor-pointer transition-colors ${
-                activeTab === 'estoqueReposicao' ? 'bg-primary text-white' : 'bg-transparent text-text-main'
-              }`}
-            >
-              Estoque + Reposicao
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('pedidos')}
-              className={`rounded-[8px] px-3 py-2.5 text-[13px] md:text-[14px] font-bold border-none cursor-pointer transition-colors ${
-                activeTab === 'pedidos' ? 'bg-primary text-white' : 'bg-transparent text-text-main'
-              }`}
-            >
-              Pedidos por Solicitante
-            </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          <MetricCard label="Estoque Atual" value={data.indicadores.totalFisico} />
+          <MetricCard label="Disponivel" value={data.indicadores.totalDisponivel} />
+          <MetricCard label="Atendidos do Estoque" value={data.indicadores.totalReservados} />
+          <MetricCard label="Reposicao Pendente" value={data.indicadores.totalReposicao} />
+        </div>
+
+        <div className="bg-white border border-border-color rounded-[16px] overflow-hidden mb-6">
+          <div className="p-4 border-b border-border-color">
+            <h2 className="m-0 text-[18px] font-bold text-text-main">Detalhamento por tamanho e cor</h2>
+            <p className="mt-1.5 mb-0 text-text-muted text-[13px]">A coluna de reposicao mostra a demanda que nao foi coberta pelo saldo controlado.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] border-collapse text-[14px]">
+              <thead>
+                <tr>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Tamanho</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Cor</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Qtd Atual</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Disponivel</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Solicitacoes</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Atendidos</th>
+                  <th className="bg-[#F8F9FA] p-4 text-left">Reposicao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.tabelaGerencial.map((row, idx) => (
+                  <tr key={`${row.tamanho}-${row.cor}-${idx}`} className="border-b border-border-color last:border-0">
+                    <td className="p-4 font-medium">{row.tamanho}</td>
+                    <td className="p-4">{row.cor}</td>
+                    <td className="p-4">{row.quantidade}</td>
+                    <td className="p-4">{row.disponivel}</td>
+                    <td className="p-4">{row.solicitacoes}</td>
+                    <td className="p-4">{row.reservados}</td>
+                    <td className="p-4">{row.reposicoes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {activeTab === 'detalhamento' && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {INDICATOR_ORDER.map((indicator) => (
-                <div key={indicator}>
-                  <MetricCard
-                    indicator={indicator}
-                    label={INDICATOR_CONFIG[indicator].label}
-                    value={indicatorValues[indicator]}
-                    isActive={filterIndicator === indicator}
-                    onClick={triggerIndicatorFilter}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-[12px] border border-border-color bg-[#f8fafc] p-4 mb-6 text-[13px] text-text-main">
-              <div>
-                Os indicadores mostram dois cenários: <strong>Disponível Total</strong> (valor informado na planilha) e{' '}
-                <strong>Disponível Real</strong> (Quantidade - Reserva Brinde).
-              </div>
-              <div className="mt-1.5">
-                Gap Real x Informado:{' '}
-                <strong className={data.indicadores.totalDisponivelGap < 0 ? 'text-[#b91c1c]' : 'text-[#1d4ed8]'}>
-                  {data.indicadores.totalDisponivelGap}
-                </strong>
-                {data.indicadores.totalDisponivelGap < 0
-                  ? ' (negativo: necessidade de reposição para quitar)'
-                  : ' (positivo: real acima do informado).'}
-              </div>
-            </div>
-
-            {activeFilterInfo && (
-              <div className="bg-[#e8f5e9] border border-[#4caf50] rounded-[12px] p-4 mb-6">
-                <div className="flex items-start justify-between gap-4">
+        <div className="bg-white border border-border-color rounded-[16px] overflow-hidden">
+          <div className="p-4 border-b border-border-color">
+            <h2 className="m-0 text-[18px] font-bold text-text-main">Pedidos por solicitante</h2>
+            <p className="mt-1.5 mb-0 text-text-muted text-[13px]">Use os botoes para confirmar baixa de estoque, entrega e quitar itens em reposicao.</p>
+          </div>
+          <div className="p-4 border-b border-border-color bg-[#FCFCFC] flex flex-col md:flex-row gap-3">
+            <input type="text" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="Buscar por nome do solicitante..." className="w-full md:max-w-[420px] p-3 rounded-[10px] border border-border-color bg-white text-[14px]" />
+            <select value={orderSort} onChange={(e) => setOrderSort(e.target.value as 'oldest' | 'newest')} className="w-full md:w-[240px] p-3 rounded-[10px] border border-border-color bg-white text-[14px]">
+              <option value="newest">Mais novo primeiro</option>
+              <option value="oldest">Mais antigo primeiro</option>
+            </select>
+          </div>
+          <div className="p-4 flex flex-col gap-3">
+            {filteredOrders.length === 0 && <div className="text-[14px] text-text-muted">Nenhum pedido encontrado.</div>}
+            {filteredOrders.map((order) => (
+              <div key={order.requestId} className="border border-border-color rounded-[12px] p-4 bg-white">
+                <div className="flex flex-col lg:flex-row lg:justify-between gap-3">
                   <div>
-                    <div className="font-bold text-[#1b5e20]">{activeFilterInfo.title}</div>
-                    <div className="text-[13px] text-[#2e7d32] mt-1">{activeFilterInfo.description}</div>
-                    <div className="text-[12px] text-[#1b5e20] mt-1.5">
-                      Quantidade do indicador: {activeIndicatorValue}
-                    </div>
-                    <div className="text-[12px] text-[#1b5e20] mt-1.5">
-                      Exibindo {filteredTable.length} de {data.tabelaGerencial.length} linha(s).
-                    </div>
+                    <div className="text-[16px] font-bold text-text-main">{order.nomeCompleto}</div>
+                    <div className="text-[12px] text-text-muted mt-1">{order.equipe} | {order.email}</div>
+                    <div className="text-[12px] text-text-muted mt-1">ID: {order.requestId} | Solicitado em: {order.dataHora}</div>
+                    <div className="mt-2 text-[13px] text-text-main"><strong>Status:</strong> {order.statusGeral}</div>
+                    <div className="mt-1 text-[13px] text-text-main"><strong>Resumo:</strong> {order.resumoPedido}</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setFilterIndicator(null)}
-                    className="border-none cursor-pointer bg-[#4caf50] text-white px-3 py-1.5 rounded-[6px] font-bold text-[12px] hover:bg-[#45a049] transition-colors flex-shrink-0"
-                  >
-                    Limpar
-                  </button>
+                  <div className="flex flex-col items-start lg:items-end gap-2">
+                    <button type="button" onClick={() => handleMarkStockSettled(order)} disabled={stockSettlingId === order.requestId} className="border border-[#1d4ed8] bg-white text-[#1d4ed8] px-4 py-2 rounded-[8px] font-bold text-[12px] disabled:opacity-50">{stockSettlingId === order.requestId ? 'Salvando...' : 'Confirmar baixa estoque'}</button>
+                    <button type="button" onClick={() => handleMarkAsDelivered(order)} disabled={deliveringId === order.requestId} className="border-none bg-primary text-white px-4 py-2 rounded-[8px] font-bold text-[12px] disabled:opacity-50">{deliveringId === order.requestId ? 'Salvando...' : 'Marcar como entregue'}</button>
+                  </div>
                 </div>
-              </div>
-            )}
 
-            <div className="bg-white border border-border-color rounded-[16px] overflow-hidden">
-              <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
-                <h2 className="m-0 text-[18px] font-bold text-text-main">Detalhamento por tamanho e cor</h2>
-                <p className="mt-1.5 mb-0 text-text-muted text-[13px]">Resumo consolidado do estoque e das solicitacoes registradas.</p>
-              </div>
-              <div className="p-4 md:px-[20px] md:pt-4 md:pb-3 border-b border-border-color bg-[#FCFCFC]">
-                <div className="flex flex-col gap-1.5 max-w-[280px]">
-                  <label className="text-[12px] text-text-muted font-semibold uppercase">Filtrar cor</label>
-                  <select
-                    value={colorFilter}
-                    onChange={(e) => setColorFilter(e.target.value)}
-                    className="w-full p-2.5 rounded-[8px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
-                  >
-                    <option value="">Todas as cores</option>
-                    {availableColors.map((color) => (
-                      <option key={color} value={color}>
-                        {color}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] border-collapse text-[14px]">
-                  <thead>
-                    <tr>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Tamanho</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Cor</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Quantidade</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Reserva</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Disponivel</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Solicitacoes</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Reservados</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Alternativas</th>
-                      <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Reposicoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTableByColor.map((row, idx) => (
-                      <tr key={`${row.tamanho}-${row.cor}-${idx}`} className="hover:bg-[#FAFAFA] transition-colors border-b border-border-color last:border-0">
-                        <td className="p-4 font-medium">{row.tamanho}</td>
-                        <td className="p-4">{row.cor}</td>
-                        <td className="p-4">{row.quantidade}</td>
-                        <td className="p-4">{row.reserva}</td>
-                        <td className={`p-4 ${getStockClass(row.disponivel)}`}>{row.disponivel}</td>
-                        <td className="p-4">{row.solicitacoes}</td>
-                        <td className="p-4">{row.reservados}</td>
-                        <td className="p-4 text-text-muted">{row.alternativas}</td>
-                        <td className="p-4 text-text-muted">{row.reposicoes}</td>
-                      </tr>
-                    ))}
-                    {filteredTableByColor.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="p-6 text-center text-text-muted">
-                          Nenhum registro encontrado para o filtro selecionado.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === 'estoqueReposicao' && (
-          <div className="bg-white border border-border-color rounded-[16px] overflow-hidden">
-            <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
-              <h2 className="m-0 text-[18px] font-bold text-text-main">Estoque inicial + reposicao por tamanho</h2>
-              <p className="mt-1.5 mb-0 text-text-muted text-[13px]">
-                Quadro consolidado por tamanho e cor (Branca, Azul e Preta), usando a fórmula: Quantidade Atual + Reservados + Reposições.
-              </p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-[14px]">
-                <thead>
-                  <tr>
-                    <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Tamanho</th>
-                    <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Branca</th>
-                    <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Azul</th>
-                    <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Preta</th>
-                    <th className="bg-[#F8F9FA] text-text-muted p-4 text-left font-semibold sticky top-0 border-b border-border-color">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stockPlusReplenishmentBySize.map((row) => (
-                    <tr key={row.tamanho} className="hover:bg-[#FAFAFA] transition-colors border-b border-border-color last:border-0">
-                      <td className="p-4 font-medium">{row.tamanho}</td>
-                      <td className={`p-4 ${getStockClass(row.Branca)}`}>{row.Branca}</td>
-                      <td className={`p-4 ${getStockClass(row.Azul)}`}>{row.Azul}</td>
-                      <td className={`p-4 ${getStockClass(row.Preta)}`}>{row.Preta}</td>
-                      <td className="p-4 font-bold text-primary">{row.total}</td>
-                    </tr>
-                  ))}
-                  {stockPlusReplenishmentBySize.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="p-6 text-center text-text-muted">
-                        Nenhum registro encontrado para montar o quadro.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'pedidos' && (
-          <div className="bg-white border border-border-color rounded-[16px] overflow-hidden">
-            <div className="p-4 md:p-[20px] pb-3 border-b border-border-color">
-              <h2 className="m-0 text-[18px] font-bold text-text-main">Pedidos por solicitante</h2>
-              <p className="mt-1.5 mb-0 text-text-muted text-[13px]">Busque pelo nome para localizar o pedido e marque como entregue.</p>
-            </div>
-
-            <div className="p-4 md:p-5 border-b border-border-color bg-[#FCFCFC]">
-              <div className="flex flex-col md:flex-row gap-3 md:items-end">
-                <div className="w-full md:max-w-[420px]">
-                  <input
-                    type="text"
-                    value={searchName}
-                    onChange={(e) => setSearchName(e.target.value)}
-                    placeholder="Buscar por nome do solicitante..."
-                    className="w-full p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="w-full md:w-[320px]">
-                  <label className="block text-[12px] text-text-muted font-semibold uppercase mb-1.5">Ordem de solicitação</label>
-                  <select
-                    value={orderSort}
-                    onChange={(e) => setOrderSort(e.target.value as 'oldest' | 'newest')}
-                    className="w-full p-3 rounded-[10px] border border-border-color bg-white text-[14px] focus:outline-none focus:border-primary"
-                  >
-                    <option value="oldest">Mais antiga primeiro</option>
-                    <option value="newest">Mais nova primeiro</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 md:p-5 flex flex-col gap-3">
-              {filteredOrders.length === 0 && (
-                <div className="text-[14px] text-text-muted">Nenhum pedido encontrado para esse nome.</div>
-              )}
-
-              {filteredOrders.map((order) => {
-                const isDelivered = order.statusEntrega === 'ENTREGUE';
-                const isDelivering = deliveringId === order.requestId;
-                const isStockSettled = order.statusBaixaEstoque === 'CONFIRMADA';
-                const isStockSettling = stockSettlingId === order.requestId;
-
-                return (
-                  <div key={order.requestId} className="border border-border-color rounded-[12px] p-4 bg-white">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                      <div>
-                        <div className="text-[16px] font-bold text-text-main">{order.nomeCompleto}</div>
-                        <div className="text-[12px] text-text-muted mt-1">
-                          {order.equipe} | {order.email}
-                        </div>
-                        <div className="text-[12px] text-text-muted mt-1">
-                          ID: {order.requestId} | Solicitado em: {order.dataHora}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-start lg:items-end gap-2">
-                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${isStockSettled ? 'bg-[#e4f5ed] text-[#065f46]' : 'bg-[#eff6ff] text-[#1d4ed8]'}`}>
-                          Baixa estoque: {order.statusBaixaEstoque || 'PENDENTE'}
-                        </span>
-                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${isDelivered ? 'bg-[#e4f5ed] text-[#065f46]' : 'bg-[#fff7ed] text-[#9a3412]'}`}>
-                          Entrega: {order.statusEntrega}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleMarkStockSettled(order)}
-                          disabled={isStockSettled || isStockSettling}
-                          className="border border-[#1d4ed8] cursor-pointer bg-white text-[#1d4ed8] px-4 py-2 rounded-[8px] font-bold text-[12px] disabled:border-[#cbd5e1] disabled:text-[#94a3b8] disabled:cursor-not-allowed"
-                        >
-                          {isStockSettled ? 'Baixa confirmada' : isStockSettling ? 'Salvando...' : 'Confirmar baixa estoque'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMarkAsDelivered(order)}
-                          disabled={isDelivered || isDelivering}
-                          className="border-none cursor-pointer bg-primary text-white px-4 py-2 rounded-[8px] font-bold text-[12px] disabled:bg-[#cbd5e1] disabled:cursor-not-allowed"
-                        >
-                          {isDelivered ? 'Ja entregue' : isDelivering ? 'Salvando...' : 'Marcar como entregue'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 text-[13px] text-text-main">
-                      <strong>Status do estoque:</strong> {order.statusGeral}
-                    </div>
-                    <div className="mt-1 text-[13px] text-text-main">
-                      <strong>Resumo:</strong> {order.resumoPedido}
-                    </div>
-                    {order.entregueEm && (
-                      <div className="mt-1 text-[12px] text-text-muted">
-                        Entregue em: {order.entregueEm}
-                      </div>
-                    )}
-                    {order.baixaEstoqueEm && (
-                      <div className="mt-1 text-[12px] text-text-muted">
-                        Baixa de estoque em: {order.baixaEstoqueEm}
-                      </div>
-                    )}
-
-                    {order.items.length > 0 && (
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full min-w-[680px] border-collapse text-[12px]">
-                          <thead>
-                            <tr>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Item</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Sol.</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Qtd Atend.</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Status</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Entrega Item</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Alternativa</th>
-                              <th className="bg-[#F8F9FA] text-text-muted p-2 text-left font-semibold border border-border-color">Ação</th>
+                {order.items.length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full min-w-[680px] border-collapse text-[12px]">
+                      <thead>
+                        <tr>
+                          <th className="bg-[#F8F9FA] p-2 text-left border border-border-color">Item</th>
+                          <th className="bg-[#F8F9FA] p-2 text-left border border-border-color">Qtd Sol.</th>
+                          <th className="bg-[#F8F9FA] p-2 text-left border border-border-color">Qtd Atend.</th>
+                          <th className="bg-[#F8F9FA] p-2 text-left border border-border-color">Status</th>
+                          <th className="bg-[#F8F9FA] p-2 text-left border border-border-color">Acao</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {order.items.map((item, idx) => {
+                          const key = `${order.requestId}-${item.ordemItem || idx + 1}`;
+                          return (
+                            <tr key={key}>
+                              <td className="p-2 border border-border-color">{item.tamanho} | {item.cor}</td>
+                              <td className="p-2 border border-border-color">{item.quantidadeSolicitada}</td>
+                              <td className="p-2 border border-border-color">{item.quantidadeAtendida}</td>
+                              <td className="p-2 border border-border-color">{item.statusItem}</td>
+                              <td className="p-2 border border-border-color">
+                                {isReplenishmentStatus(item.statusItem) ? (
+                                  <button type="button" onClick={() => handleSettleReplenishment(order, item.ordemItem || idx + 1)} disabled={settlingKey === key} className="border-none bg-[#1d4ed8] text-white px-2.5 py-1.5 rounded-[6px] font-bold text-[11px] disabled:opacity-50">{settlingKey === key ? 'Quitando...' : 'Quitar reposicao'}</button>
+                                ) : (
+                                  <span className="text-text-muted">-</span>
+                                )}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {order.items.map((item, idx) => (
-                              <tr key={`${order.requestId}-${idx}`}>
-                                <td className="p-2 border border-border-color">{item.tamanho} | {item.cor}</td>
-                                <td className="p-2 border border-border-color">{item.quantidadeSolicitada}</td>
-                                <td className="p-2 border border-border-color">{item.quantidadeAtendida}</td>
-                                <td className="p-2 border border-border-color">{item.statusItem}</td>
-                                <td className="p-2 border border-border-color">{item.statusEntregaItem || '-'}</td>
-                                <td className="p-2 border border-border-color">{item.alternativaSugerida || '-'}</td>
-                                <td className="p-2 border border-border-color">
-                                  {item.statusItem === 'SOLICITAR REPOSIÇÃO' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSettleReplenishment(order, item.ordemItem || idx + 1)}
-                                      disabled={settlingKey === `${order.requestId}-${item.ordemItem || idx + 1}`}
-                                      className="border-none cursor-pointer bg-[#1d4ed8] text-white px-2.5 py-1.5 rounded-[6px] font-bold text-[11px] disabled:bg-[#94a3b8] disabled:cursor-not-allowed"
-                                    >
-                                      {settlingKey === `${order.requestId}-${item.ordemItem || idx + 1}` ? 'Quitando...' : 'Quitar reposição'}
-                                    </button>
-                                  ) : (
-                                    <span className="text-text-muted">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            ))}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

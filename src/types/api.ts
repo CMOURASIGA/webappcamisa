@@ -29,8 +29,6 @@ export interface SubmitOrderPayload {
   nomeCompleto: string;
   email: string;
   equipe: string;
-  clienteEspecificoReserva?: boolean;
-  motivoExcecaoReserva?: string;
   items: SubmitOrderItem[];
   proofFile: {
     name: string;
@@ -59,6 +57,7 @@ export interface DashboardRow {
   reservados: number;
   alternativas: number;
   reposicoes: number;
+  controlaSaldo?: boolean;
 }
 
 export interface DashboardOrderItem {
