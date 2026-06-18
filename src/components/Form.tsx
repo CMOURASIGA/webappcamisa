@@ -35,7 +35,7 @@ export default function Form() {
   const PRICE = 40;
   const PIX_KEY = '21980342025';
   const LOGO_URL = 'https://i.imgur.com/c5XQ7TW.jpg';
-  const SHIRT_LINKS: Record<string, string> = { Preta: 'https://imgur.com/HaLhOb2' };
+  const SHIRT_LINKS: Record<string, string> = {};
 
   useEffect(() => {
     let active = true;
@@ -53,7 +53,8 @@ export default function Form() {
         const data = await fetchBootstrapData();
         if (!active) return;
         setStockRows(data.stockOptions.rows || []);
-        setAvailableColors(data.stockOptions.colors?.length ? data.stockOptions.colors : COLORS);
+        const colorsFromRows = [...new Set((data.stockOptions.rows || []).map((row) => row.cor).filter(Boolean))];
+        setAvailableColors(data.stockOptions.colors?.length ? data.stockOptions.colors : (colorsFromRows.length ? colorsFromRows : COLORS));
         setAllowedExtensions(data.allowedExtensions?.length ? data.allowedExtensions : ['pdf', 'jpg', 'jpeg', 'png']);
         setIsLoadingStock(false);
       } catch (error) {
@@ -232,7 +233,7 @@ export default function Form() {
                   <div className="flex flex-col gap-1.5 mb-4">
                     <div className="flex items-center justify-between gap-2">
                       <label className="text-[11px] text-text-muted font-semibold uppercase">Cor da camisa</label>
-                      {item.color === 'Preta' && SHIRT_LINKS.Preta && <a href={SHIRT_LINKS.Preta} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-primary no-underline border border-primary/20 rounded-[999px] px-2 py-1">Ver camisa</a>}
+                      {item.color && SHIRT_LINKS[item.color] && <a href={SHIRT_LINKS[item.color]} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-primary no-underline border border-primary/20 rounded-[999px] px-2 py-1">Ver camisa</a>}
                     </div>
                     <div className="flex flex-wrap gap-2 mt-1">{colors.map((c) => <button key={c} type="button" onClick={() => updateItem(item.id, { color: c, size: '' })} className={`px-3 py-1.5 border rounded-[20px] text-[12px] font-semibold ${item.color === c ? 'bg-primary border-primary text-white' : 'bg-white border-border-color text-text-main'}`}>{c}</button>)}</div>
                   </div>
