@@ -11,6 +11,7 @@ import {
   getProofSignedUrl,
   getSession,
   registerStockReceipt,
+  resendConfirmationEmail,
   setStockBalance,
   signIn,
   signOut,
@@ -291,6 +292,7 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
   const [statusOrder, setStatusOrder] = useState<DashboardOrder | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   useEffect(() => { getSession().then((session) => setAuthenticated(Boolean(session))); }, []);
 
@@ -428,6 +430,19 @@ export default function Dashboard() {
     }
   };
 
+  const handleResendEmail = async (order: DashboardOrder) => {
+    setResendingId(order.solicitacao_id);
+    setError('');
+    try {
+      await resendConfirmationEmail(order.solicitacao_id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao reenviar e-mail.');
+    } finally {
+      setResendingId(null);
+    }
+  };
+
   const handleProof = async (path: string | null) => {
     if (!path) return alert('Solicitação sem comprovante associado.');
     if (/^https?:\/\//i.test(path)) {
@@ -555,7 +570,7 @@ export default function Dashboard() {
                     : o.status_item === 'PRONTO_ENTREGA' || o.status_item === 'PARCIALMENTE_COBERTO'
                       ? 'inline-flex rounded-full bg-green-100 px-2 py-1 text-[11px] font-black text-green-800'
                       : 'inline-flex rounded-full bg-gray-100 px-2 py-1 text-[11px] font-bold text-gray-700';
-                  return <tr key={o.item_id} className={rowClass}><td className="p-3"><div className="font-bold">{o.nome_solicitante}</div><div className="text-[10px] font-bold text-primary">{o.codigo || o.solicitacao_id.slice(0, 8)}</div><div className="text-[10px] text-text-muted">{o.eh_encontreiro ? 'Encontreiro' : 'Externo'} {o.equipe ? `• ${o.equipe}` : ''}</div><div className={`mt-1 text-[10px] font-bold ${o.email_confirmacao_enviada_em ? 'text-success' : o.email_confirmacao_erro ? 'text-danger' : 'text-text-muted'}`}>{o.email_solicitante ? (o.email_confirmacao_enviada_em ? 'E-mail enviado' : o.email_confirmacao_erro ? 'E-mail com falha' : 'E-mail pendente') : 'Sem e-mail informado'}</div></td><td className="p-3 font-semibold">{o.nome_beneficiario}</td><td className="p-3">{o.cor} / {o.tamanho}</td><td className="p-3 text-right">{o.quantidade_solicitada}</td><td className="p-3 text-right font-bold text-success">{o.quantidade_reservada}</td><td className="p-3 text-right">{o.quantidade_entregue}</td><td className="p-3 text-right font-bold text-[#D97706]">{o.quantidade_sem_cobertura}</td><td className="p-3"><span className={statusClass}>{STATUS_LABELS[o.status_item] || o.status_item}</span></td><td className="p-3"><span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${o.status_solicitacao === 'CANCELADA' ? 'bg-red-100 text-red-700' : o.status_solicitacao === 'CONCLUIDA' ? 'bg-green-100 text-green-800' : 'bg-blue-50 text-primary'}`}>{o.status_solicitacao === 'CONCLUIDA' ? 'Concluída' : o.status_solicitacao === 'CANCELADA' ? 'Cancelada' : 'Aberta'}</span></td><td className="p-3"><div className="flex flex-wrap gap-2"><button onClick={() => handleProof(o.comprovante_path)} className="rounded-lg border border-border-color bg-white px-2 py-1.5 font-bold">Comprovante</button><button onClick={() => { setStatusOrder(o); setStatusDrawerOpen(true); }} className="rounded-lg border border-border-color bg-white px-2 py-1.5 font-bold">Alterar status</button>{Number(o.quantidade_pendente) > 0 && Number(o.quantidade_reservada) > 0 && o.status_solicitacao !== 'CANCELADA' && <button onClick={() => handleDeliver(o)} className="rounded-lg bg-primary px-2 py-1.5 font-bold text-white">Entregar</button>}</div></td></tr>;
+                  return <tr key={o.item_id} className={rowClass}><td className="p-3"><div className="font-bold">{o.nome_solicitante}</div><div className="text-[10px] font-bold text-primary">{o.codigo || o.solicitacao_id.slice(0, 8)}</div><div className="text-[10px] text-text-muted">{o.eh_encontreiro ? 'Encontreiro' : 'Externo'} {o.equipe ? `• ${o.equipe}` : ''}</div><div className={`mt-1 text-[10px] font-bold ${o.email_confirmacao_enviada_em ? 'text-success' : o.email_confirmacao_erro ? 'text-danger' : 'text-text-muted'}`}>{o.email_solicitante ? (o.email_confirmacao_enviada_em ? 'E-mail enviado' : o.email_confirmacao_erro ? 'E-mail com falha' : 'E-mail pendente') : 'Sem e-mail informado'}</div></td><td className="p-3 font-semibold">{o.nome_beneficiario}</td><td className="p-3">{o.cor} / {o.tamanho}</td><td className="p-3 text-right">{o.quantidade_solicitada}</td><td className="p-3 text-right font-bold text-success">{o.quantidade_reservada}</td><td className="p-3 text-right">{o.quantidade_entregue}</td><td className="p-3 text-right font-bold text-[#D97706]">{o.quantidade_sem_cobertura}</td><td className="p-3"><span className={statusClass}>{STATUS_LABELS[o.status_item] || o.status_item}</span></td><td className="p-3"><span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${o.status_solicitacao === 'CANCELADA' ? 'bg-red-100 text-red-700' : o.status_solicitacao === 'CONCLUIDA' ? 'bg-green-100 text-green-800' : 'bg-blue-50 text-primary'}`}>{o.status_solicitacao === 'CONCLUIDA' ? 'Concluída' : o.status_solicitacao === 'CANCELADA' ? 'Cancelada' : 'Aberta'}</span></td><td className="p-3"><div className="flex flex-wrap gap-2"><button onClick={() => handleProof(o.comprovante_path)} className="rounded-lg border border-border-color bg-white px-2 py-1.5 font-bold">Comprovante</button><button onClick={() => { setStatusOrder(o); setStatusDrawerOpen(true); }} className="rounded-lg border border-border-color bg-white px-2 py-1.5 font-bold">Alterar status</button>{Number(o.quantidade_pendente) > 0 && Number(o.quantidade_reservada) > 0 && o.status_solicitacao !== 'CANCELADA' && <button onClick={() => handleDeliver(o)} className="rounded-lg bg-primary px-2 py-1.5 font-bold text-white">Entregar</button>}{o.email_solicitante && !o.email_confirmacao_enviada_em && <button onClick={() => handleResendEmail(o)} disabled={resendingId === o.solicitacao_id} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 font-bold text-primary disabled:opacity-50">{resendingId === o.solicitacao_id ? 'Reenviando...' : 'Reenviar e-mail'}</button>}</div></td></tr>;
                 })}</tbody>
               </table>
               {!filteredOrders.length && <div className="p-6 text-center text-[13px] text-text-muted">Nenhuma solicitação encontrada para os filtros informados.</div>}

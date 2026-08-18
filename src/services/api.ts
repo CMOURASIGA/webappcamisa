@@ -67,6 +67,18 @@ export async function sendConfirmationEmail(requestId: string, dispatchToken: st
   return data;
 }
 
+// Gera um novo token de disparo (o anterior é de uso único) e reenvia a confirmação por e-mail.
+// Usado pelo dashboard quando a solicitação ficou com "E-mail com falha" ou "E-mail pendente".
+export async function resendConfirmationEmail(requestId: string) {
+  const { data, error } = await supabase.rpc('camisa_gerar_token_reenvio_email', {
+    p_solicitacao_id: requestId,
+  });
+  if (error) throw new Error(error.message);
+  const dispatchToken = data?.dispatch_token;
+  if (!dispatchToken) throw new Error('Não foi possível gerar o token de reenvio.');
+  return sendConfirmationEmail(requestId, dispatchToken);
+}
+
 export async function signIn(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
