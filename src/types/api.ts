@@ -1,135 +1,105 @@
-export interface StockOptionRow {
-  tamanho: string;
+export type ShirtItemInput = {
   cor: string;
+  tamanho: string;
   quantidade: number;
-  reserva: number;
-  disponivel: number;
-}
+};
 
-export interface BootstrapData {
-  logoUrl: string;
-  instagramUrl: string;
-  allowedExtensions: string[];
-  stockOptions: {
-    colors: string[];
-    specificReserveColors?: string[];
-    rows: StockOptionRow[];
-  };
-}
+export type EncontreiroOption = {
+  pessoa_id: string;
+  nome_completo: string;
+};
 
-export interface SubmitOrderItem {
-  tamanho: string;
-  cor: string;
-  quantidade: number;
-  aceitaTamanhoAlternativo: boolean;
-  aceitaOutraCor: boolean;
-}
+export type SubmitOrderPayload = {
+  encontroId: string;
+  ehEncontreiro: boolean;
+  solicitantePessoaId: string | null;
+  nomeSolicitante: string;
+  telefoneSolicitante: string | null;
+  emailSolicitante: string | null;
+  equipe: string | null;
+  beneficiarioPessoaId: string | null;
+  nomeBeneficiario: string;
+  observacoes: string | null;
+  comprovantePath: string;
+  comprovanteNome: string;
+  comprovanteTipo: string;
+  comprovanteTamanho: number;
+  valorTotal: number;
+  items: ShirtItemInput[];
+};
 
-export interface SubmitOrderPayload {
-  nomeCompleto: string;
-  email: string;
-  equipe: string;
-  items: SubmitOrderItem[];
-  proofFile: {
-    name: string;
-    type: string;
-    size: number;
-    base64: string;
-  };
-}
-
-export interface SubmitOrderResult {
+export type SubmitOrderResult = {
   success: boolean;
-  requestId: string;
-  statusGeral: string;
-  observacaoGeral: string;
-  proofUrl: string;
-  message: string;
-}
+  request_id: string;
+  codigo: string;
+  status: string;
+  email_dispatch_token: string | null;
+  email_solicitante: string | null;
+};
 
-export interface DashboardRow {
-  tamanho: string;
+export type DashboardSummaryRow = {
+  encontro_id: string;
+  encontro_nome: string;
   cor: string;
-  quantidade: number;
-  reserva: number;
-  disponivel: number;
-  solicitacoes: number;
-  reservados: number;
-  alternativas: number;
-  reposicoes: number;
-  controlaSaldo?: boolean;
-}
-
-export interface DashboardOrderItem {
-  ordemItem: number;
   tamanho: string;
+  estoque_fisico: number;
+  estoque_comprometido: number;
+  estoque_disponivel: number;
+  quantidade_solicitada: number;
+  quantidade_entregue: number;
+  demanda_aberta: number;
+  em_reposicao: number;
+  pronto_para_entrega: number;
+  solicitar_reposicao: number;
+};
+
+export type DashboardOrder = {
+  solicitacao_id: string;
+  codigo: string | null;
+  criado_em: string;
+  encontro_id: string;
+  encontro_nome: string;
+  eh_encontreiro: boolean;
+  nome_solicitante: string;
+  telefone_solicitante: string | null;
+  email_solicitante: string | null;
+  equipe: string | null;
+  nome_beneficiario: string;
+  status_solicitacao: string;
+  comprovante_path: string | null;
+  email_confirmacao_enviada_em: string | null;
+  email_confirmacao_erro: string | null;
+  item_id: string;
   cor: string;
-  quantidadeSolicitada: number;
-  quantidadeAtendida: number;
-  statusItem: string;
-  alternativaSugerida: string;
-  statusEntregaItem?: string;
-  entregueItemEm?: string;
-  statusBaixaItem?: string;
-  baixaItemEm?: string;
-}
+  tamanho: string;
+  quantidade_solicitada: number;
+  quantidade_entregue: number;
+  quantidade_reservada: number;
+  quantidade_pendente: number;
+  quantidade_sem_cobertura: number;
+  status_item: string;
+};
 
-export interface SettleReplenishmentResult {
-  success: boolean;
-  requestId: string;
-  ordemItem: number;
-  statusItem: string;
-  quantidadeRecebida: number;
-  estoqueAtualizado: {
-    tamanho: string;
-    cor: string;
-    quantidade: number;
-    disponivel: number;
-  };
-  updatedAt: string;
-}
+export type Replenishment = {
+  reposicao_id: string;
+  encontro_id: string | null;
+  encontro_nome: string | null;
+  criado_em: string;
+  status_reposicao: string;
+  fornecedor: string | null;
+  item_id: string;
+  cor: string;
+  tamanho: string;
+  quantidade_pedida: number;
+  quantidade_recebida: number;
+  quantidade_pendente: number;
+};
 
-export interface DashboardOrder {
-  requestId: string;
-  dataHora: string;
-  nomeCompleto: string;
-  email: string;
-  equipe: string;
-  resumoPedido: string;
-  statusGeral: string;
-  statusEntrega: string;
-  entregueEm: string;
-  statusBaixaEstoque?: string;
-  baixaEstoqueEm?: string;
-  items: DashboardOrderItem[];
-}
-
-export interface DashboardData {
-  logoUrl: string;
-  instagramUrl: string;
-  atualizadoEm: string;
-  indicadores: {
-    totalFisico: number;
-    totalReserva: number;
-    totalDisponivel: number;
-    totalDisponivelReal: number;
-    totalDisponivelGap: number;
-    totalBrancaDisponivel: number;
-    totalPretaDisponivel: number;
-    totalAzulDisponivel: number;
-    totalReservados: number;
-    totalAlternativa: number;
-    totalReposicao: number;
-    totalCamisasAEntregar: number;
-    totalCamisasEntregues: number;
-    totalCamisasPendentesEntrega: number;
-  };
-  tabelaGerencial: DashboardRow[];
-  pedidos: DashboardOrder[];
-}
-
-export interface MarkOrderStockSettledResult {
-  success: boolean;
-  requestId: string;
-  stockSettledAt: string;
-}
+export type StockRow = {
+  id: string;
+  cor: string;
+  tamanho: string;
+  quantidade_fisica: number;
+  estoque_minimo: number;
+  ativo: boolean;
+};

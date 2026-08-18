@@ -1,45 +1,30 @@
-﻿# WebApp de Solicitação de Camisas (React + Google Apps Script)
+# Gestão de Camisas EAC
 
-Aplicação frontend em React/Vite integrada ao backend em Google Apps Script para gravar solicitações na planilha oficial.
+Versão Supabase do sistema de solicitação, reposição, estoque e entrega de camisas.
 
-## Pré-requisitos
+## Arquitetura
 
-- Node.js 18+
-- Projeto publicado no Google Apps Script como Web App
+- Formulário público com busca controlada de encontreiro.
+- Solicitante externo pode digitar o nome livremente.
+- Beneficiário é obrigatório.
+- Solicitação não depende de estoque.
+- Dashboard autenticado com Supabase Auth.
+- Reposição, recebimento e entrega são operações distintas.
+- Estoque físico só baixa na entrega.
+- Movimentações mantêm auditoria do saldo.
 
-## Variáveis de ambiente
+## Banco
 
-Crie um `.env.local` com base no `.env.example`.
+Base configurada por variável `VITE_SUPABASE_URL`.
 
-- `VITE_GAS_WEB_APP_URL`: URL `/exec` do Web App do Apps Script
-- `VITE_USE_MOCK_API`: `true` para validar UI com mock, `false` para integração real
+O SQL complementar está em `supabase/camisas_module.sql`.
 
-## Rodar local
+## Apps Script
 
-1. `npm install`
-2. Ajustar `.env.local`
-3. `npm run dev`
+A pasta `google-apps-script/` foi preservada apenas como histórico do projeto. O frontend desta versão não importa nem chama `Code.gs`.
 
-## Rotas de acesso
+Consulte `VALIDACAO_LOCAL.md` para o roteiro completo.
 
-- Formulario: `/`
-- Dashboard: `/dashboard` (ou `/#/dashboard` como fallback sem configuracao de rewrite)
+## Gmail API e código amigável
 
-## Build
-
-- `npm run build`
-
-## Deploy na Vercel
-
-Configure as mesmas variáveis no projeto da Vercel:
-
-- `VITE_GAS_WEB_APP_URL`
-- `VITE_USE_MOCK_API` (normalmente `false`)
-
-## Google Apps Script
-
-O arquivo pronto para colar no Apps Script está em:
-
-- `google-apps-script/code.gs`
-
-Depois de publicar, copie a URL `/exec` e use em `VITE_GAS_WEB_APP_URL`.
+Para habilitar confirmação por e-mail usando o Gmail oficial do EAC, veja `GMAIL_OAUTH_SETUP.md` e rode `supabase/camisas_email_gmail.sql`.
