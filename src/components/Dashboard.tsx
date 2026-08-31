@@ -24,6 +24,8 @@ const ENCONTRO_NOME = import.meta.env.VITE_EAC_ENCONTRO_NOME || 'EAC 37';
 
 type Tab = 'visao' | 'solicitacoes' | 'reposicao' | 'estoque';
 type StatusFilter = 'TODOS' | 'PENDENTE_REPOSICAO' | 'PARCIALMENTE_COBERTO' | 'PRONTO_ENTREGA' | 'PARCIALMENTE_ENTREGUE' | 'ENTREGUE' | 'CANCELADO';
+type ColorFilter = 'TODAS' | string;
+type SizeFilter = 'TODOS' | string;
 
 type ReceiptForm = {
   cor: string;
@@ -287,6 +289,8 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [colorFilter, setColorFilter] = useState<ColorFilter>('TODAS');
+  const [sizeFilter, setSizeFilter] = useState<SizeFilter>('TODOS');
   const [stockDrawerOpen, setStockDrawerOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<StockRow | null>(null);
   const [copied, setCopied] = useState(false);
@@ -336,9 +340,19 @@ export default function Dashboard() {
       const matchesSearch = !q || [o.nome_solicitante, o.nome_beneficiario, o.cor, o.tamanho, o.codigo]
         .some((x) => String(x || '').toLowerCase().includes(q));
       const matchesStatus = statusFilter === 'TODOS' || o.status_item === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesColor = colorFilter === 'TODAS' || o.cor === colorFilter;
+      const matchesSize = sizeFilter === 'TODOS' || o.tamanho === sizeFilter;
+      return matchesSearch && matchesStatus && matchesColor && matchesSize;
     });
-  }, [orders, search, statusFilter]);
+  }, [orders, search, statusFilter, colorFilter, sizeFilter]);
+
+  const filteredSummary = useMemo(() => summary.filter((r) =>
+    (colorFilter === 'TODAS' || r.cor === colorFilter) && (sizeFilter === 'TODOS' || r.tamanho === sizeFilter)
+  ), [summary, colorFilter, sizeFilter]);
+
+  const filteredStock = useMemo(() => stock.filter((s) =>
+    (colorFilter === 'TODAS' || s.cor === colorFilter) && (sizeFilter === 'TODOS' || s.tamanho === sizeFilter)
+  ), [stock, colorFilter, sizeFilter]);
 
   const exportOrdersCsv = () => {
     if (!filteredOrders.length) return;
@@ -517,6 +531,28 @@ export default function Dashboard() {
           ))}
         </div>
 
+        <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex items-center gap-2">
+            <label className="text-[12px] font-bold text-text-muted">Cor</label>
+            <select value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} className="rounded-xl border border-border-color bg-white p-2.5 text-[13px] font-semibold">
+              <option value="TODAS">Todas as cores</option>
+              {COLORS.map((cor) => <option key={cor} value={cor}>{cor}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[12px] font-bold text-text-muted">Tamanho</label>
+            <select value={sizeFilter} onChange={(e) => setSizeFilter(e.target.value)} className="rounded-xl border border-border-color bg-white p-2.5 text-[13px] font-semibold">
+              <option value="TODOS">Todos os tamanhos</option>
+              {SIZES.map((tamanho) => <option key={tamanho} value={tamanho}>{tamanho}</option>)}
+            </select>
+          </div>
+          {(colorFilter !== 'TODAS' || sizeFilter !== 'TODOS') && (
+            <button onClick={() => { setColorFilter('TODAS'); setSizeFilter('TODOS'); }} className="flex w-fit items-center gap-1 rounded-xl border border-border-color bg-white px-3 py-2 text-[12px] font-bold text-text-muted">
+              <X size={13} /> Limpar filtro
+            </button>
+          )}
+        </div>
+
         {loading && <div className="mb-4 rounded-xl border border-border-color bg-white p-3 text-[12px]">Atualizando dados...</div>}
 
         {tab === 'visao' && (
@@ -528,8 +564,9 @@ export default function Dashboard() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] border-collapse text-[12px]">
                 <thead><tr className="bg-[#F7F9FB]"><th className="p-3 text-left">Cor</th><th className="p-3 text-left">Tamanho</th><th className="p-3 text-right">Solicitadas</th><th className="p-3 text-right">Entregues</th><th className="p-3 text-right">Pendentes</th><th className="p-3 text-right">Com estoque</th><th className="p-3 text-right">Sem estoque / reposição</th></tr></thead>
-                <tbody>{summary.map((r) => <tr key={`${r.cor}-${r.tamanho}`} className="border-t border-border-color"><td className="p-3 font-bold">{r.cor}</td><td className="p-3">{r.tamanho}</td><td className="p-3 text-right">{r.quantidade_solicitada}</td><td className="p-3 text-right">{r.quantidade_entregue}</td><td className="p-3 text-right font-bold">{r.demanda_aberta}</td><td className="p-3 text-right text-[15px] font-black text-success">{r.estoque_comprometido}</td><td className="p-3 text-right text-[15px] font-black text-[#D97706]">{r.solicitar_reposicao}</td></tr>)}</tbody>
+                <tbody>{filteredSummary.map((r) => <tr key={`${r.cor}-${r.tamanho}`} className="border-t border-border-color"><td className="p-3 font-bold">{r.cor}</td><td className="p-3">{r.tamanho}</td><td className="p-3 text-right">{r.quantidade_solicitada}</td><td className="p-3 text-right">{r.quantidade_entregue}</td><td className="p-3 text-right font-bold">{r.demanda_aberta}</td><td className="p-3 text-right text-[15px] font-black text-success">{r.estoque_comprometido}</td><td className="p-3 text-right text-[15px] font-black text-[#D97706]">{r.solicitar_reposicao}</td></tr>)}</tbody>
               </table>
+              {!filteredSummary.length && <div className="p-6 text-center text-[13px] text-text-muted">Nenhum item encontrado para os filtros informados.</div>}
             </div>
           </div>
         )}
@@ -610,9 +647,9 @@ export default function Dashboard() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] border-collapse text-[13px]">
                 <thead><tr className="bg-[#F7F9FB]"><th className="p-3 text-left">Cor</th><th className="p-3 text-left">Tamanho</th><th className="p-3 text-right">Saldo físico</th><th className="p-3 text-right">Direcionado às solicitações</th><th className="p-3 text-right">Livre</th><th className="p-3 text-left">Ações</th></tr></thead>
-                <tbody>{stock.map((s) => { const c = stockCoverage(s); return <tr key={s.id} className="border-t border-border-color"><td className="p-3 font-bold">{s.cor}</td><td className="p-3">{s.tamanho}</td><td className="p-3 text-right text-[17px] font-black">{s.quantidade_fisica}</td><td className="p-3 text-right font-bold text-success">{c?.estoque_comprometido || 0}</td><td className="p-3 text-right">{c?.estoque_disponivel || 0}</td><td className="p-3"><div className="flex gap-2"><button onClick={() => { setEditingStock(s); setStockDrawerOpen(true); }} className="flex items-center gap-1 rounded-lg border border-border-color px-2 py-1.5 font-bold"><Pencil size={13} /> Editar</button><button onClick={() => handleDeleteStock(s)} className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 font-bold text-danger"><Trash2 size={13} /> Excluir</button></div></td></tr>; })}</tbody>
+                <tbody>{filteredStock.map((s) => { const c = stockCoverage(s); return <tr key={s.id} className="border-t border-border-color"><td className="p-3 font-bold">{s.cor}</td><td className="p-3">{s.tamanho}</td><td className="p-3 text-right text-[17px] font-black">{s.quantidade_fisica}</td><td className="p-3 text-right font-bold text-success">{c?.estoque_comprometido || 0}</td><td className="p-3 text-right">{c?.estoque_disponivel || 0}</td><td className="p-3"><div className="flex gap-2"><button onClick={() => { setEditingStock(s); setStockDrawerOpen(true); }} className="flex items-center gap-1 rounded-lg border border-border-color px-2 py-1.5 font-bold"><Pencil size={13} /> Editar</button><button onClick={() => handleDeleteStock(s)} className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 font-bold text-danger"><Trash2 size={13} /> Excluir</button></div></td></tr>; })}</tbody>
               </table>
-              {!stock.length && <div className="p-6 text-center text-[13px] text-text-muted">Nenhum recebimento de estoque registrado.</div>}
+              {!filteredStock.length && <div className="p-6 text-center text-[13px] text-text-muted">Nenhum recebimento de estoque encontrado para os filtros informados.</div>}
             </div>
           </div>
         )}
