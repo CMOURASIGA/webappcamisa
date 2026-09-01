@@ -628,6 +628,7 @@ export default function Dashboard() {
   const [stockDrawerOpen, setStockDrawerOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<StockRow | null>(null);
   const [copied, setCopied] = useState(false);
+  const [stockCopied, setStockCopied] = useState(false);
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
   const [statusOrder, setStatusOrder] = useState<DashboardOrder | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -915,6 +916,39 @@ export default function Dashboard() {
       await navigator.clipboard.writeText(lines.join("\n"));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      alert(lines.join("\n"));
+    }
+  };
+
+  const copyStockList = async () => {
+    if (!filteredStock.length) return;
+    const totalFisico = filteredStock.reduce(
+      (total, row) => total + Number(row.quantidade_fisica || 0),
+      0,
+    );
+    const totalComprometido = filteredStock.reduce(
+      (total, row) =>
+        total + Number(stockCoverage(row)?.estoque_comprometido || 0),
+      0,
+    );
+    const lines = [
+      `POSIÇÃO DE ESTOQUE - ${ENCONTRO_NOME}`,
+      "",
+      "COR | TAMANHO | FÍSICO | COMPROMETIDO | LIVRE",
+      ...filteredStock.map((row) => {
+        const coverage = stockCoverage(row);
+        return `${row.cor} | ${row.tamanho} | ${row.quantidade_fisica} | ${coverage?.estoque_comprometido || 0} | ${coverage?.estoque_disponivel || 0}`;
+      }),
+      "",
+      `TOTAL FÍSICO: ${totalFisico} camisa(s)`,
+      `TOTAL COMPROMETIDO: ${totalComprometido} camisa(s)`,
+      `TOTAL LIVRE: ${Math.max(totalFisico - totalComprometido, 0)} camisa(s)`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setStockCopied(true);
+      window.setTimeout(() => setStockCopied(false), 1800);
     } catch {
       alert(lines.join("\n"));
     }
@@ -1397,15 +1431,25 @@ export default function Dashboard() {
                   comprometido com solicitações e o que ainda está livre.
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setEditingStock(null);
-                  setStockDrawerOpen(true);
-                }}
-                className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-[12px] font-bold text-white"
-              >
-                <PackagePlus size={15} /> Registrar recebimento
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={copyStockList}
+                  disabled={!filteredStock.length}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-primary bg-white px-4 py-2 text-[12px] font-bold text-primary disabled:opacity-40"
+                >
+                  <ClipboardCopy size={15} />
+                  {stockCopied ? "Estoque copiado" : "Copiar estoque"}
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingStock(null);
+                    setStockDrawerOpen(true);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-[12px] font-bold text-white"
+                >
+                  <PackagePlus size={15} /> Registrar recebimento
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] border-collapse text-[13px]">
