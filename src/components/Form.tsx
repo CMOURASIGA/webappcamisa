@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, CircleHelp, FileCheck2, Paperclip, Search, Shirt, Upload, X } from 'lucide-react';
-import { COLORS, SIZES, TEAMS } from '../data/mockData';
+import { COLORS, SIZES, TEAMS, getColorLabel } from '../data/mockData';
 import { searchEncontreiros, sendConfirmationEmail, submitOrder, uploadProof } from '../services/api';
 import type { EncontreiroOption } from '../types/api';
 
@@ -239,7 +239,7 @@ export default function Form() {
                 <div key={item.id} className="rounded-xl border border-border-color bg-[#FAFBFC] p-3">
                   <div className="mb-2 flex items-center justify-between"><strong className="text-[12px]">Item {index + 1}</strong>{items.length > 1 && <button type="button" onClick={() => removeItem(item.id)} className="text-[11px] font-bold text-danger">Remover</button>}</div>
                   <div className="grid grid-cols-2 gap-2">
-                    <select value={item.color} onChange={(e) => updateItem(item.id, { color: e.target.value })} className="rounded-lg border border-border-color bg-white p-2.5 text-[13px]"><option value="">Cor</option>{COLORS.map((c) => <option key={c}>{c}</option>)}</select>
+                    <select value={item.color} onChange={(e) => updateItem(item.id, { color: e.target.value })} className="rounded-lg border border-border-color bg-white p-2.5 text-[13px]"><option value="">Cor</option>{COLORS.map((c) => <option key={c} value={c}>{getColorLabel(c)}</option>)}</select>
                     <select value={item.size} onChange={(e) => updateItem(item.id, { size: e.target.value })} className="rounded-lg border border-border-color bg-white p-2.5 text-[13px]"><option value="">Tamanho</option>{SIZES.map((s) => <option key={s}>{s}</option>)}</select>
                   </div>
                   <div className="mt-2"><label className="text-[11px] font-bold">Quantidade</label><input type="number" min={1} value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="mt-1 w-full rounded-lg border border-border-color bg-white p-2.5 text-[13px]" /></div>

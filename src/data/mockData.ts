@@ -1,5 +1,16 @@
 export const SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'];
-export const COLORS = ['Branca', 'Azul', 'Marrom', 'Preta - EAC 36'];
+export const COLOR_OPTIONS = [
+  { value: 'Branca', label: 'Branca - Oficial' },
+  { value: 'Azul', label: 'Azul - Oficial' },
+  { value: 'Preta', label: 'Preta - 36º EAC' },
+  { value: 'Marrom', label: 'Marrom - 37º EAC' },
+];
+
+export const COLORS = COLOR_OPTIONS.map((option) => option.value);
+
+export const getColorLabel = (color: string) =>
+  COLOR_OPTIONS.find((option) => option.value === color)?.label ||
+  (color === 'Preta - EAC 36' ? 'Preta - 36º EAC' : color);
 
 export const TEAMS = [
   'Banda',

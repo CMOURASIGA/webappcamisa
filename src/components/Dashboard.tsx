@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { COLORS, SIZES } from "../data/mockData";
+import { COLORS, SIZES, getColorLabel } from "../data/mockData";
 import {
   deleteStockBalance,
   deliverItem,
@@ -288,7 +288,7 @@ function StockDrawer({
               <option value="">Selecione a cor</option>
               {COLORS.map((cor) => (
                 <option key={cor} value={cor}>
-                  {cor}
+                  {getColorLabel(cor)}
                 </option>
               ))}
             </select>
@@ -542,7 +542,7 @@ function ItemDrawer({
               Alterar camisa solicitada
             </h2>
             <p className="m-0 mt-1 text-[12px] text-text-muted">
-              {order.nome_beneficiario} - atual: {order.cor} / {order.tamanho}
+              {order.nome_beneficiario} - atual: {getColorLabel(order.cor)} / {order.tamanho}
             </p>
           </div>
           <button
@@ -568,7 +568,7 @@ function ItemDrawer({
             >
               {COLORS.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {getColorLabel(value)}
                 </option>
               ))}
             </select>
@@ -788,7 +788,7 @@ export default function Dashboard() {
       o.telefone_solicitante || "",
       o.eh_encontreiro ? "Encontreiro" : "Externo",
       o.equipe || "",
-      o.cor,
+      getColorLabel(o.cor),
       o.tamanho,
       o.quantidade_solicitada,
       o.quantidade_reservada,
@@ -907,7 +907,8 @@ export default function Dashboard() {
       `LISTA PARA CONFECÇÃO - ${ENCONTRO_NOME}`,
       "",
       ...replenishmentRows.map(
-        (r) => `${r.cor} | ${r.tamanho} | ${r.solicitar_reposicao}`,
+        (r) =>
+          `${getColorLabel(r.cor)} | ${r.tamanho} | ${r.solicitar_reposicao}`,
       ),
       "",
       `TOTAL: ${totals.comprar} camisa(s)`,
@@ -938,7 +939,7 @@ export default function Dashboard() {
       "COR | TAMANHO | FÍSICO | COMPROMETIDO | LIVRE",
       ...filteredStock.map((row) => {
         const coverage = stockCoverage(row);
-        return `${row.cor} | ${row.tamanho} | ${row.quantidade_fisica} | ${coverage?.estoque_comprometido || 0} | ${coverage?.estoque_disponivel || 0}`;
+        return `${getColorLabel(row.cor)} | ${row.tamanho} | ${row.quantidade_fisica} | ${coverage?.estoque_comprometido || 0} | ${coverage?.estoque_disponivel || 0}`;
       }),
       "",
       `TOTAL FÍSICO: ${totalFisico} camisa(s)`,
@@ -1052,7 +1053,7 @@ export default function Dashboard() {
               <option value="TODAS">Todas as cores</option>
               {COLORS.map((cor) => (
                 <option key={cor} value={cor}>
-                  {cor}
+                  {getColorLabel(cor)}
                 </option>
               ))}
             </select>
@@ -1124,7 +1125,7 @@ export default function Dashboard() {
                       key={`${r.cor}-${r.tamanho}`}
                       className="border-t border-border-color"
                     >
-                      <td className="p-3 font-bold">{r.cor}</td>
+                      <td className="p-3 font-bold">{getColorLabel(r.cor)}</td>
                       <td className="p-3">{r.tamanho}</td>
                       <td className="p-3 text-right">
                         {r.quantidade_solicitada}
@@ -1270,7 +1271,7 @@ export default function Dashboard() {
                           {o.nome_beneficiario}
                         </td>
                         <td className="p-3">
-                          {o.cor} / {o.tamanho}
+                          {getColorLabel(o.cor)} / {o.tamanho}
                         </td>
                         <td className="p-3 text-right">
                           {o.quantidade_solicitada}
@@ -1400,7 +1401,7 @@ export default function Dashboard() {
                       key={`${r.cor}-${r.tamanho}`}
                       className="border-t border-border-color bg-orange-50"
                     >
-                      <td className="p-3 font-bold">{r.cor}</td>
+                      <td className="p-3 font-bold">{getColorLabel(r.cor)}</td>
                       <td className="p-3 font-bold">{r.tamanho}</td>
                       <td className="p-3 text-right text-[18px] font-black text-[#D97706]">
                         {r.solicitar_reposicao}
@@ -1470,7 +1471,7 @@ export default function Dashboard() {
                     const c = stockCoverage(s);
                     return (
                       <tr key={s.id} className="border-t border-border-color">
-                        <td className="p-3 font-bold">{s.cor}</td>
+                        <td className="p-3 font-bold">{getColorLabel(s.cor)}</td>
                         <td className="p-3">{s.tamanho}</td>
                         <td className="p-3 text-right text-[17px] font-black">
                           {s.quantidade_fisica}
