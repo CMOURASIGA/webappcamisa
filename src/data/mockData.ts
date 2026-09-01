@@ -1,5 +1,5 @@
 export const SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'];
-export const COLORS = ['Branca', 'Azul', 'Marrom'];
+export const COLORS = ['Branca', 'Azul', 'Marrom', 'Preta'];
 
 export const TEAMS = [
   'Banda',
