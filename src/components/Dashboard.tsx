@@ -614,6 +614,84 @@ function ItemDrawer({
   );
 }
 
+function DeleteOrderModal({
+  order,
+  onClose,
+  onDeleted,
+}: {
+  order: DashboardOrder | null;
+  onClose: () => void;
+  onDeleted: () => Promise<void>;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const [reason, setReason] = useState("Solicitação cadastrada incorretamente");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!order) return;
+    setConfirmation("");
+    setReason("Solicitação cadastrada incorretamente");
+    setError("");
+  }, [order]);
+
+  if (!order) return null;
+  const code = order.codigo || order.solicitacao_id.slice(0, 8);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (confirmation.trim() !== code) {
+      return setError(`Digite exatamente o código ${code} para confirmar.`);
+    }
+    if (reason.trim().length < 5) {
+      return setError("Informe um motivo válido para a exclusão.");
+    }
+    setSaving(true);
+    try {
+      await deleteOrder(order.solicitacao_id, reason.trim());
+      await onDeleted();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir solicitação.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="delete-order-title" className="w-full max-w-[520px] rounded-2xl border border-red-100 bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-bold uppercase text-danger">Ação permanente</div>
+            <h2 id="delete-order-title" className="m-0 mt-1 text-[22px] font-black">Excluir solicitação</h2>
+            <p className="m-0 mt-2 text-[13px] text-text-muted">A solicitação <strong>{code}</strong> e todos os seus itens serão excluídos. O registro da operação será preservado na auditoria.</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-border-color p-2" aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] font-semibold text-red-700">{error}</div>}
+
+        <form onSubmit={submit} className="mt-5 space-y-4">
+          <div>
+            <label className="text-[12px] font-bold">Digite o código {code}</label>
+            <input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-1 w-full rounded-xl border border-border-color p-3 text-[13px]" placeholder={code} />
+          </div>
+          <div>
+            <label className="text-[12px] font-bold">Motivo da exclusão</label>
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="mt-1 w-full rounded-xl border border-border-color p-3 text-[13px]" />
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-border-color bg-white px-4 py-3 text-[13px] font-bold">Cancelar</button>
+            <button disabled={saving || confirmation.trim() !== code} className="rounded-xl bg-danger px-4 py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{saving ? "Excluindo..." : "Excluir definitivamente"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [tab, setTab] = useState<Tab>("visao");
@@ -633,7 +711,7 @@ export default function Dashboard() {
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
   const [statusOrder, setStatusOrder] = useState<DashboardOrder | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
-  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [deleteOrderTarget, setDeleteOrderTarget] = useState<DashboardOrder | null>(null);
   const [itemDrawerOpen, setItemDrawerOpen] = useState(false);
   const [editingOrderItem, setEditingOrderItem] =
     useState<DashboardOrder | null>(null);
@@ -867,39 +945,18 @@ export default function Dashboard() {
     }
   };
 
-  const handleDeleteOrder = async (order: DashboardOrder) => {
+  const handleDeleteOrder = (order: DashboardOrder) => {
     const requestItems = orders.filter(
       (item) => item.solicitacao_id === order.solicitacao_id,
     );
     if (requestItems.some((item) => Number(item.quantidade_entregue) > 0)) {
-      return alert(
+      setError(
         "Esta solicitação possui entrega registrada. Reabra a solicitação antes de excluí-la para devolver as camisas ao estoque.",
       );
+      return;
     }
-    const code = order.codigo || order.solicitacao_id.slice(0, 8);
-    const confirmation = window.prompt(
-      `Esta ação excluirá toda a solicitação ${code}, incluindo todos os itens. Para confirmar, digite o código ${code}.`,
-    );
-    if (confirmation?.trim() !== code) return;
-    const reason = window.prompt(
-      "Informe o motivo da exclusão:",
-      "Solicitação cadastrada incorretamente",
-    );
-    if (!reason || reason.trim().length < 5) {
-      return alert("A exclusão foi cancelada. Informe um motivo válido.");
-    }
-    setDeletingOrderId(order.solicitacao_id);
     setError("");
-    try {
-      await deleteOrder(order.solicitacao_id, reason.trim());
-      await load();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Falha ao excluir solicitação.",
-      );
-    } finally {
-      setDeletingOrderId(null);
-    }
+    setDeleteOrderTarget(order);
   };
 
   const handleProof = async (path: string | null) => {
@@ -1366,12 +1423,9 @@ export default function Dashboard() {
                             </button>
                             <button
                               onClick={() => handleDeleteOrder(o)}
-                              disabled={deletingOrderId === o.solicitacao_id}
-                              className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 font-bold text-danger disabled:opacity-50"
+                              className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 font-bold text-danger"
                             >
-                              {deletingOrderId === o.solicitacao_id
-                                ? "Excluindo..."
-                                : "Excluir solicitação"}
+                              Excluir solicitação
                             </button>
                             {Number(o.quantidade_pendente) > 0 &&
                               Number(o.quantidade_reservada) > 0 &&
@@ -1590,6 +1644,11 @@ export default function Dashboard() {
           setEditingOrderItem(null);
         }}
         onSaved={load}
+      />
+      <DeleteOrderModal
+        order={deleteOrderTarget}
+        onClose={() => setDeleteOrderTarget(null)}
+        onDeleted={load}
       />
     </div>
   );
