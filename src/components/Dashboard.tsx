@@ -14,6 +14,7 @@ import {
 import { COLORS, SIZES, getColorLabel } from "../data/mockData";
 import {
   deleteStockBalance,
+  deleteOrder,
   deliverItem,
   fetchDashboardSummary,
   fetchOrders,
@@ -632,6 +633,7 @@ export default function Dashboard() {
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
   const [statusOrder, setStatusOrder] = useState<DashboardOrder | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [itemDrawerOpen, setItemDrawerOpen] = useState(false);
   const [editingOrderItem, setEditingOrderItem] =
     useState<DashboardOrder | null>(null);
@@ -862,6 +864,41 @@ export default function Dashboard() {
       );
     } finally {
       setResendingId(null);
+    }
+  };
+
+  const handleDeleteOrder = async (order: DashboardOrder) => {
+    const requestItems = orders.filter(
+      (item) => item.solicitacao_id === order.solicitacao_id,
+    );
+    if (requestItems.some((item) => Number(item.quantidade_entregue) > 0)) {
+      return alert(
+        "Esta solicitação possui entrega registrada. Reabra a solicitação antes de excluí-la para devolver as camisas ao estoque.",
+      );
+    }
+    const code = order.codigo || order.solicitacao_id.slice(0, 8);
+    const confirmation = window.prompt(
+      `Esta ação excluirá toda a solicitação ${code}, incluindo todos os itens. Para confirmar, digite o código ${code}.`,
+    );
+    if (confirmation?.trim() !== code) return;
+    const reason = window.prompt(
+      "Informe o motivo da exclusão:",
+      "Solicitação cadastrada incorretamente",
+    );
+    if (!reason || reason.trim().length < 5) {
+      return alert("A exclusão foi cancelada. Informe um motivo válido.");
+    }
+    setDeletingOrderId(order.solicitacao_id);
+    setError("");
+    try {
+      await deleteOrder(order.solicitacao_id, reason.trim());
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Falha ao excluir solicitação.",
+      );
+    } finally {
+      setDeletingOrderId(null);
     }
   };
 
@@ -1326,6 +1363,15 @@ export default function Dashboard() {
                               className="rounded-lg border border-border-color bg-white px-2 py-1.5 font-bold"
                             >
                               Alterar status
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOrder(o)}
+                              disabled={deletingOrderId === o.solicitacao_id}
+                              className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 font-bold text-danger disabled:opacity-50"
+                            >
+                              {deletingOrderId === o.solicitacao_id
+                                ? "Excluindo..."
+                                : "Excluir solicitação"}
                             </button>
                             {Number(o.quantidade_pendente) > 0 &&
                               Number(o.quantidade_reservada) > 0 &&

@@ -228,6 +228,15 @@ export async function updateOrderStatus(
   return data;
 }
 
+export async function deleteOrder(requestId: string, reason: string) {
+  const { data, error } = await supabase.rpc("camisa_excluir_solicitacao", {
+    p_solicitacao_id: requestId,
+    p_motivo: reason,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function registerStockReceipt(
   cor: string,
   tamanho: string,
