@@ -7,7 +7,7 @@ import { supabaseConfigError } from './lib/supabase';
 type View = 'form' | 'dashboard' | 'sandbox';
 
 function resolveView(pathname: string, hash: string): View {
-  if (pathname === '/sandbox' || hash === '#/sandbox') return 'sandbox';
+  if (pathname.startsWith('/sandbox') || hash.startsWith('#/sandbox')) return 'sandbox';
   if (pathname === '/dashboard' || hash === '#/dashboard') return 'dashboard';
   return 'form';
 }
