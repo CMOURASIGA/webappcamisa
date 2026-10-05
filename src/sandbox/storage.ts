@@ -307,3 +307,14 @@ export function markEmailEventSent(id: string, event: string) {
     history: [...row.history, history('SISTEMA', 'EMAIL_ENVIADO', event)],
   }));
 }
+
+
+export function cancelWithoutRefund(id: string, note: string) {
+  return mutate(id, (row) => ({
+    ...row,
+    status: 'CANCELADA',
+    paymentStatus: 'NAO_LOCALIZADO',
+    cancelledAt: now(),
+    history: [...row.history, history('FINANCEIRO', 'CANCELADA_SEM_ESTORNO', note)],
+  }));
+}
