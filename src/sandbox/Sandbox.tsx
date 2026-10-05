@@ -23,7 +23,15 @@ import {
 } from './storage';
 import { sendSandboxEmail, type SandboxEmailEvent } from './email';
 
-type Tab = 'nova' | 'acompanhar' | 'financeiro' | 'configuracoes';
+type PublicTab = 'nova' | 'acompanhar';
+type SandboxArea = 'public' | 'financeiro' | 'configuracoes';
+
+function resolveSandboxArea(): SandboxArea {
+  const path = window.location.pathname;
+  if (path.includes('/sandbox/admin/financeiro')) return 'financeiro';
+  if (path.includes('/sandbox/admin/configuracoes')) return 'configuracoes';
+  return 'public';
+}
 
 const statusLabel: Record<string, string> = {
   AGUARDANDO_PAGAMENTO: 'Aguardando pagamento',
@@ -54,6 +62,47 @@ function dateTime(value: string) {
 
 function Badge({ children }: { children: ReactNode }) {
   return <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-black text-primary">{children}</span>;
+}
+
+function CreationConfirmation({
+  row,
+  refresh,
+  onNew,
+  onTrack,
+}: {
+  row: PreRequest;
+  refresh: () => void;
+  onNew: () => void;
+  onTrack: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-2xl space-y-4">
+      <div className="rounded-2xl border border-success/30 bg-white p-6 text-center shadow-sm">
+        <CheckCircle2 className="mx-auto text-success" size={42} />
+        <div className="mt-3 text-[12px] font-black uppercase tracking-wider text-success">Pré-solicitação criada</div>
+        <h2 className="m-0 mt-2 text-3xl font-black text-primary">{row.protocol}</h2>
+        <p className="mx-auto mt-3 max-w-xl text-[13px] leading-6 text-text-muted">
+          Guarde este protocolo. Ele identifica sua pré-solicitação, mas ainda não representa um pedido confirmado.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-[13px] font-semibold leading-6 text-amber-900">
+        Sua compra só será confirmada depois que você informar o PIX e o Financeiro validar o recebimento.
+        Até lá, não há reserva de camisa. Prazo para pagamento: <strong>{dateTime(row.expiresAt)}</strong>.
+      </div>
+
+      <RequestCard row={row} refresh={refresh} />
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <button type="button" onClick={onTrack} className="rounded-xl bg-primary px-4 py-3 text-[12px] font-black text-white">
+          Acompanhar esta pré-solicitação
+        </button>
+        <button type="button" onClick={onNew} className="rounded-xl border border-border-color bg-white px-4 py-3 text-[12px] font-black">
+          Criar outra pré-solicitação
+        </button>
+      </div>
+    </div>
+  );
 }
 
 async function notifyByEmail(event: SandboxEmailEvent, row: PreRequest | null) {
@@ -206,7 +255,8 @@ function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void })
 }
 
 export default function Sandbox() {
-  const [tab, setTab] = useState<Tab>('nova');
+  const area = resolveSandboxArea();
+  const [tab, setTab] = useState<PublicTab>('nova');
   const [version, setVersion] = useState(0);
   const [settings, setSettings] = useState<SandboxSettings>(() => loadSettings());
   const [created, setCreated] = useState<PreRequest | null>(null);
@@ -291,8 +341,14 @@ export default function Sandbox() {
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-5 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-[11px] font-black uppercase tracking-wider text-primary">webappcamisa · homologação local</div>
-            <h1 className="m-0 mt-1 text-2xl font-black">Pré-solicitação + PIX manual</h1>
-            <p className="m-0 mt-1 text-[12px] text-text-muted">Sem alteração no Supabase. Persistência exclusivamente em localStorage.</p>
+            <h1 className="m-0 mt-1 text-2xl font-black">
+              {area === 'public' ? 'Solicitação de camisas' : area === 'financeiro' ? 'Financeiro' : 'Configurações'}
+            </h1>
+            <p className="m-0 mt-1 text-[12px] text-text-muted">
+              {area === 'public'
+                ? 'Área do solicitante. Pré-solicitação, pagamento e acompanhamento.'
+                : 'Área administrativa do sandbox. Não faz parte do fluxo público.'}
+            </p>
           </div>
           <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-black text-amber-800">
             <ShieldCheck size={15} /> SANDBOX
@@ -301,20 +357,52 @@ export default function Sandbox() {
       </header>
 
       <div className="mx-auto max-w-6xl p-4">
-        <nav className="mb-5 grid grid-cols-2 gap-2 md:grid-cols-4">
-          {([
-            ['nova', 'Nova pré-solicitação', Shirt],
-            ['acompanhar', 'Acompanhar', Clock3],
-            ['financeiro', 'Financeiro', CreditCard],
-            ['configuracoes', 'Configurações', Settings2],
-          ] as const).map(([key, label, Icon]) => (
-            <button key={key} onClick={() => setTab(key)} className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-[12px] font-black ${tab === key ? 'border-primary bg-primary text-white' : 'border-border-color bg-white text-text-main'}`}>
-              <Icon size={15} /> {label}
-            </button>
-          ))}
-        </nav>
+        {area === 'public' ? (
+          <nav className="mb-5 grid grid-cols-2 gap-2">
+            {([
+              ['nova', 'Nova pré-solicitação', Shirt],
+              ['acompanhar', 'Acompanhar', Clock3],
+            ] as const).map(([key, label, Icon]) => (
+              <button key={key} onClick={() => setTab(key)} className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-[12px] font-black ${tab === key ? 'border-primary bg-primary text-white' : 'border-border-color bg-white text-text-main'}`}>
+                <Icon size={15} /> {label}
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <nav className="mb-5 grid grid-cols-1 gap-2 md:grid-cols-3">
+            <a href="/sandbox/admin/financeiro" className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-[12px] font-black no-underline ${area === 'financeiro' ? 'border-primary bg-primary text-white' : 'border-border-color bg-white text-text-main'}`}>
+              <CreditCard size={15} /> Financeiro
+            </a>
+            <a href="/sandbox/admin/configuracoes" className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-[12px] font-black no-underline ${area === 'configuracoes' ? 'border-primary bg-primary text-white' : 'border-border-color bg-white text-text-main'}`}>
+              <Settings2 size={15} /> Configurações
+            </a>
+            <a href="/sandbox" className="flex items-center justify-center gap-2 rounded-xl border border-border-color bg-white p-3 text-[12px] font-black text-text-main no-underline">
+              <Shirt size={15} /> Ir para área pública
+            </a>
+          </nav>
+        )}
 
-        {tab === 'nova' && (
+        {area === 'public' && tab === 'nova' && (
+          created ? (
+            <CreationConfirmation
+              row={created}
+              refresh={refresh}
+              onTrack={() => {
+                setProtocolSearch(created.protocol);
+                setFound(findByProtocol(created.protocol));
+                setTab('acompanhar');
+              }}
+              onNew={() => {
+                setCreated(null);
+                setRequesterName('');
+                setBeneficiaryName('');
+                setEmail('');
+                setPhone('');
+                setItems([{ id: crypto.randomUUID(), color: '', size: '', quantity: 1 }]);
+                setFormMessage('');
+              }}
+            />
+          ) : (
           <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
             <div className="space-y-4 rounded-2xl border border-border-color bg-white p-5">
               <div>
@@ -361,18 +449,17 @@ export default function Sandbox() {
             </div>
 
             <div>
-              {created ? <RequestCard row={created} refresh={refresh} /> : (
-                <div className="rounded-2xl border border-dashed border-border-color bg-white p-8 text-center">
-                  <Shirt className="mx-auto text-text-muted" />
-                  <div className="mt-3 text-[13px] font-black">A pré-solicitação criada aparecerá aqui</div>
-                  <div className="mt-1 text-[11px] text-text-muted">Com protocolo, prazo e PIX Copia e Cola.</div>
-                </div>
-              )}
+              <div className="rounded-2xl border border-dashed border-border-color bg-white p-8 text-center">
+                <Shirt className="mx-auto text-text-muted" />
+                <div className="mt-3 text-[13px] font-black">Após concluir, você receberá seu protocolo REC</div>
+                <div className="mt-1 text-[11px] text-text-muted">A próxima tela mostrará prazo, valor e PIX Copia e Cola.</div>
+              </div>
             </div>
           </div>
+          )
         )}
 
-        {tab === 'acompanhar' && (
+        {area === 'public' && tab === 'acompanhar' && (
           <div className="mx-auto max-w-2xl">
             <div className="mb-4 rounded-2xl border border-border-color bg-white p-4">
               <div className="text-[13px] font-black">Consultar protocolo</div>
@@ -385,7 +472,7 @@ export default function Sandbox() {
           </div>
         )}
 
-        {tab === 'financeiro' && (
+        {area === 'financeiro' && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-border-color bg-white p-5">
               <h2 className="m-0 text-lg font-black">Fila do Financeiro</h2>
@@ -426,7 +513,7 @@ export default function Sandbox() {
           </div>
         )}
 
-        {tab === 'configuracoes' && (
+        {area === 'configuracoes' && (
           <div className="mx-auto max-w-2xl rounded-2xl border border-border-color bg-white p-5">
             <h2 className="m-0 text-lg font-black">Configurações do PIX</h2>
             <p className="mt-1 text-[12px] text-text-muted">As mudanças valem somente para novas pré-solicitações.</p>
