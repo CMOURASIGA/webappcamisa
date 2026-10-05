@@ -58,7 +58,8 @@ function Badge({ children }: { children: ReactNode }) {
 
 async function notifyByEmail(event: SandboxEmailEvent, row: PreRequest | null) {
   if (!row || !row.email || row.emailEventsSent?.includes(event)) return { skipped: true };
-  await sendSandboxEmail(event, row);
+  const result = await sendSandboxEmail(event, row);
+  if (result?.skipped) return { skipped: true, reason: result.reason };
   markEmailEventSent(row.id, event);
   return { skipped: false };
 }
@@ -84,8 +85,10 @@ function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void })
       proofSize: proof.size,
     });
     try {
-      await notifyByEmail('PAYMENT_INFORMED', updated);
-      setMessage('Pagamento informado. Agora depende da validação do Financeiro. E-mail enviado.');
+      const emailResult = await notifyByEmail('PAYMENT_INFORMED', updated);
+      setMessage(emailResult.skipped
+        ? 'Pagamento informado. Agora depende da validação do Financeiro. E-mail indisponível neste preview.'
+        : 'Pagamento informado. Agora depende da validação do Financeiro. E-mail enviado.');
     } catch (error) {
       setMessage(`Pagamento informado, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -98,10 +101,10 @@ function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void })
       : 'CANCELLATION_REQUESTED';
     const updated = cancelPreRequest(row.id, cancelReason);
     try {
-      await notifyByEmail(event, updated);
+      const emailResult = await notifyByEmail(event, updated);
       setMessage(row.paymentStatus === 'NAO_INFORMADO'
-        ? 'Pré-solicitação cancelada. E-mail enviado.'
-        : 'Cancelamento solicitado. O Financeiro precisa verificar o PIX. E-mail enviado.');
+        ? (emailResult.skipped ? 'Pré-solicitação cancelada. E-mail indisponível neste preview.' : 'Pré-solicitação cancelada. E-mail enviado.')
+        : (emailResult.skipped ? 'Cancelamento solicitado. O Financeiro precisa verificar o PIX. E-mail indisponível neste preview.' : 'Cancelamento solicitado. O Financeiro precisa verificar o PIX. E-mail enviado.'));
     } catch (error) {
       setMessage(`Cancelamento registrado, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -246,8 +249,10 @@ export default function Sandbox() {
     const row = createPreRequest({ requesterName, beneficiaryName, email, phone, items });
     setCreated(row);
     try {
-      await notifyByEmail('PRE_REQUEST_CREATED', row);
-      setFormMessage(row.email ? 'Pré-solicitação criada e e-mail de homologação enviado.' : '');
+      const emailResult = await notifyByEmail('PRE_REQUEST_CREATED', row);
+      setFormMessage(row.email
+        ? (emailResult.skipped ? 'Pré-solicitação criada. E-mail indisponível neste preview.' : 'Pré-solicitação criada e e-mail de homologação enviado.')
+        : 'Pré-solicitação criada.');
     } catch (error) {
       setFormMessage(`Pré-solicitação criada, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
     }
