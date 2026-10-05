@@ -4,6 +4,7 @@ import { COLORS, SIZES } from '../data/mockData';
 import {
   DEFAULT_SETTINGS,
   cancelPreRequest,
+  cancelWithoutRefund,
   clearSandbox,
   confirmPayment,
   createPreRequest,
@@ -399,14 +400,17 @@ export default function Sandbox() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {row.paymentStatus === 'AGUARDANDO_VALIDACAO' && (
+                  {row.paymentStatus === 'AGUARDANDO_VALIDACAO' && row.status !== 'CANCELAMENTO_SOLICITADO' && (
                     <>
                       <button onClick={async () => { const updated = confirmPayment(row.id); try { await notifyByEmail('PAYMENT_CONFIRMED', updated); } finally { refresh(); } }} className="flex items-center gap-2 rounded-xl bg-success px-3 py-2 text-[11px] font-black text-white"><CheckCircle2 size={14} /> Confirmar PIX</button>
                       <button onClick={async () => { const updated = paymentNotFound(row.id, 'PIX não localizado pelo Financeiro.'); try { await notifyByEmail('PAYMENT_NOT_FOUND', updated); } finally { refresh(); } }} className="flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-[11px] font-black text-red-700"><XCircle size={14} /> Não localizado</button>
                     </>
                   )}
                   {row.status === 'CANCELAMENTO_SOLICITADO' && row.paymentStatus !== 'ESTORNO_PENDENTE' && row.paymentStatus !== 'ESTORNADO' && (
-                    <button onClick={() => { markRefundPending(row.id); refresh(); }} className="rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-white">PIX entrou · exigir estorno</button>
+                    <>
+                      <button onClick={() => { markRefundPending(row.id); refresh(); }} className="rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-white">PIX entrou · exigir estorno</button>
+                      <button onClick={async () => { const updated = cancelWithoutRefund(row.id, 'Financeiro verificou que o PIX não entrou.'); try { await notifyByEmail('PRE_REQUEST_CANCELLED', updated); } finally { refresh(); } }} className="rounded-xl border border-border-color bg-white px-3 py-2 text-[11px] font-black">PIX não entrou · cancelar sem estorno</button>
+                    </>
                   )}
                   {row.paymentStatus === 'ESTORNO_PENDENTE' && (
                     <button onClick={async () => { const updated = markRefunded(row.id, 'Estorno registrado pelo Financeiro no sandbox.'); try { await notifyByEmail('REFUND_COMPLETED', updated); } finally { refresh(); } }} className="rounded-xl bg-primary px-3 py-2 text-[11px] font-black text-white">Registrar estorno</button>
