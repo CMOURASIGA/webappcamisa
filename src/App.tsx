@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react';
 import Dashboard from './components/Dashboard';
 import Form from './components/Form';
+import Sandbox from './sandbox/Sandbox';
 import { supabaseConfigError } from './lib/supabase';
 
-function resolveView(pathname: string, hash: string) {
-  if (pathname === '/dashboard' || hash === '#/dashboard') {
-    return 'dashboard';
-  }
+type View = 'form' | 'dashboard' | 'sandbox';
 
+function resolveView(pathname: string, hash: string): View {
+  if (pathname === '/sandbox' || hash === '#/sandbox') return 'sandbox';
+  if (pathname === '/dashboard' || hash === '#/dashboard') return 'dashboard';
   return 'form';
 }
 
 export default function App() {
+  const requestedView = resolveView(window.location.pathname, window.location.hash);
+
+  // O sandbox é propositalmente local-first e deve abrir mesmo sem Supabase.
+  if (requestedView === 'sandbox') {
+    return <Sandbox />;
+  }
+
   if (supabaseConfigError) {
     return (
       <div
@@ -65,44 +73,7 @@ export default function App() {
     );
   }
 
-  const requestedView = resolveView(
-    window.location.pathname,
-    window.location.hash
-  );
-
-  // Bloqueia apenas o formulário público.
-  // O dashboard continua acessível em /dashboard ou #/dashboard.
-  if (
-    import.meta.env.VITE_SITE_BLOCKED === 'true' &&
-    requestedView !== 'dashboard'
-  ) {
-    return (
-      <div
-        style={{
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          background: '#111',
-          color: '#fff',
-          fontFamily: 'Arial, sans-serif',
-          textAlign: 'center',
-          padding: '24px',
-        }}
-      >
-        <h1 style={{ fontSize: '32px', marginBottom: '16px' }}>
-          Sistema temporariamente indisponível
-        </h1>
-
-        <p style={{ fontSize: '18px', opacity: 0.8 }}>
-          Voltaremos em breve.
-        </p>
-      </div>
-    );
-  }
-
-  const [view, setView] = useState(() =>
+  const [view, setView] = useState<View>(() =>
     resolveView(window.location.pathname, window.location.hash)
   );
 
@@ -120,5 +91,7 @@ export default function App() {
     };
   }, []);
 
-  return view === 'dashboard' ? <Dashboard /> : <Form />;
+  if (view === 'dashboard') return <Dashboard />;
+  if (view === 'sandbox') return <Sandbox />;
+  return <Form />;
 }
