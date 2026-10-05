@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, Clipboard, Clock3, CreditCard, Settings2, ShieldCheck, Shirt, XCircle } from 'lucide-react';
 import { COLORS, SIZES } from '../data/mockData';
 import {
@@ -13,12 +13,14 @@ import {
   loadSettings,
   markRefundPending,
   markRefunded,
+  markEmailEventSent,
   paymentNotFound,
   saveSettings,
   type PreRequest,
   type PreRequestItem,
   type SandboxSettings,
 } from './storage';
+import { sendSandboxEmail, type SandboxEmailEvent } from './email';
 
 type Tab = 'nova' | 'acompanhar' | 'financeiro' | 'configuracoes';
 
@@ -53,6 +55,13 @@ function Badge({ children }: { children: ReactNode }) {
   return <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-black text-primary">{children}</span>;
 }
 
+async function notifyByEmail(event: SandboxEmailEvent, row: PreRequest | null) {
+  if (!row || !row.email || row.emailEventsSent?.includes(event)) return { skipped: true };
+  await sendSandboxEmail(event, row);
+  markEmailEventSent(row.id, event);
+  return { skipped: false };
+}
+
 function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void }) {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [proof, setProof] = useState<File | null>(null);
@@ -62,26 +71,39 @@ function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void })
   const canInformPayment = row.status === 'AGUARDANDO_PAGAMENTO' || row.paymentStatus === 'NAO_LOCALIZADO';
   const canCancel = !['CANCELADA', 'EXPIRADA'].includes(row.status);
 
-  const doInformPayment = () => {
+  const doInformPayment = async () => {
     if (!proof) {
       setMessage('Selecione o comprovante para informar o pagamento.');
       return;
     }
-    informPayment(row.id, {
+    const updated = informPayment(row.id, {
       paymentDate,
       proofName: proof.name,
       proofType: proof.type || 'application/octet-stream',
       proofSize: proof.size,
     });
-    setMessage('Pagamento informado. Agora depende da validação do Financeiro.');
+    try {
+      await notifyByEmail('PAYMENT_INFORMED', updated);
+      setMessage('Pagamento informado. Agora depende da validação do Financeiro. E-mail enviado.');
+    } catch (error) {
+      setMessage(`Pagamento informado, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
+    }
     refresh();
   };
 
-  const doCancel = () => {
-    cancelPreRequest(row.id, cancelReason);
-    setMessage(row.paymentStatus === 'NAO_INFORMADO'
-      ? 'Pré-solicitação cancelada.'
-      : 'Cancelamento solicitado. O Financeiro precisa verificar o PIX.');
+  const doCancel = async () => {
+    const event: SandboxEmailEvent = row.paymentStatus === 'NAO_INFORMADO'
+      ? 'PRE_REQUEST_CANCELLED'
+      : 'CANCELLATION_REQUESTED';
+    const updated = cancelPreRequest(row.id, cancelReason);
+    try {
+      await notifyByEmail(event, updated);
+      setMessage(row.paymentStatus === 'NAO_INFORMADO'
+        ? 'Pré-solicitação cancelada. E-mail enviado.'
+        : 'Cancelamento solicitado. O Financeiro precisa verificar o PIX. E-mail enviado.');
+    } catch (error) {
+      setMessage(`Cancelamento registrado, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
+    }
     refresh();
   };
 
@@ -207,7 +229,7 @@ export default function Sandbox() {
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const previewTotal = totalQuantity * settings.shirtUnitPrice;
 
-  const create = () => {
+  const create = async () => {
     if (!requesterName.trim() || !beneficiaryName.trim()) {
       setFormMessage('Informe solicitante e beneficiário.');
       return;
@@ -222,7 +244,12 @@ export default function Sandbox() {
     }
     const row = createPreRequest({ requesterName, beneficiaryName, email, phone, items });
     setCreated(row);
-    setFormMessage('');
+    try {
+      await notifyByEmail('PRE_REQUEST_CREATED', row);
+      setFormMessage(row.email ? 'Pré-solicitação criada e e-mail de homologação enviado.' : '');
+    } catch (error) {
+      setFormMessage(`Pré-solicitação criada, mas o e-mail de homologação falhou: ${error instanceof Error ? error.message : String(error)}`);
+    }
     refresh();
   };
 
@@ -234,6 +261,23 @@ export default function Sandbox() {
     ['AGUARDANDO_VALIDACAO', 'NAO_LOCALIZADO', 'ESTORNO_PENDENTE'].includes(row.paymentStatus) ||
     row.status === 'CANCELAMENTO_SOLICITADO'
   );
+
+  useEffect(() => {
+    const pendingExpired = requests.filter(
+      (row) => row.status === 'EXPIRADA' && row.email && !row.emailEventsSent?.includes('PRE_REQUEST_EXPIRED')
+    );
+    if (!pendingExpired.length) return;
+
+    let active = true;
+    Promise.allSettled(pendingExpired.map((row) => notifyByEmail('PRE_REQUEST_EXPIRED', row)))
+      .then(() => {
+        if (active) setVersion((value) => value + 1);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [requests]);
 
   return (
     <div className="min-h-screen bg-[#F4F7FA]">
@@ -357,15 +401,15 @@ export default function Sandbox() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {row.paymentStatus === 'AGUARDANDO_VALIDACAO' && (
                     <>
-                      <button onClick={() => { confirmPayment(row.id); refresh(); }} className="flex items-center gap-2 rounded-xl bg-success px-3 py-2 text-[11px] font-black text-white"><CheckCircle2 size={14} /> Confirmar PIX</button>
-                      <button onClick={() => { paymentNotFound(row.id, 'PIX não localizado pelo Financeiro.'); refresh(); }} className="flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-[11px] font-black text-red-700"><XCircle size={14} /> Não localizado</button>
+                      <button onClick={async () => { const updated = confirmPayment(row.id); try { await notifyByEmail('PAYMENT_CONFIRMED', updated); } finally { refresh(); } }} className="flex items-center gap-2 rounded-xl bg-success px-3 py-2 text-[11px] font-black text-white"><CheckCircle2 size={14} /> Confirmar PIX</button>
+                      <button onClick={async () => { const updated = paymentNotFound(row.id, 'PIX não localizado pelo Financeiro.'); try { await notifyByEmail('PAYMENT_NOT_FOUND', updated); } finally { refresh(); } }} className="flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-[11px] font-black text-red-700"><XCircle size={14} /> Não localizado</button>
                     </>
                   )}
                   {row.status === 'CANCELAMENTO_SOLICITADO' && row.paymentStatus !== 'ESTORNO_PENDENTE' && row.paymentStatus !== 'ESTORNADO' && (
                     <button onClick={() => { markRefundPending(row.id); refresh(); }} className="rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-white">PIX entrou · exigir estorno</button>
                   )}
                   {row.paymentStatus === 'ESTORNO_PENDENTE' && (
-                    <button onClick={() => { markRefunded(row.id, 'Estorno registrado pelo Financeiro no sandbox.'); refresh(); }} className="rounded-xl bg-primary px-3 py-2 text-[11px] font-black text-white">Registrar estorno</button>
+                    <button onClick={async () => { const updated = markRefunded(row.id, 'Estorno registrado pelo Financeiro no sandbox.'); try { await notifyByEmail('REFUND_COMPLETED', updated); } finally { refresh(); } }} className="rounded-xl bg-primary px-3 py-2 text-[11px] font-black text-white">Registrar estorno</button>
                   )}
                 </div>
               </div>
