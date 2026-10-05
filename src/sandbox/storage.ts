@@ -66,6 +66,7 @@ export type PreRequest = {
   proofType: string | null;
   proofSize: number | null;
   pixPayload: string;
+  emailEventsSent: string[];
   pixSnapshot: {
     keyType: PixKeyType;
     key: string;
@@ -114,7 +115,10 @@ export function listPreRequests(): PreRequest[] {
   const raw = localStorage.getItem(REQUESTS_KEY);
   if (!raw) return [];
   try {
-    const rows = JSON.parse(raw) as PreRequest[];
+    const rows = (JSON.parse(raw) as PreRequest[]).map((row) => ({
+      ...row,
+      emailEventsSent: Array.isArray(row.emailEventsSent) ? row.emailEventsSent : [],
+    }));
     return expireRows(rows).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   } catch {
     return [];
@@ -188,6 +192,7 @@ export function createPreRequest(input: {
     proofName: null,
     proofType: null,
     proofSize: null,
+    emailEventsSent: [],
     pixPayload: generatePixCopyPaste({
       key: settings.pixKey,
       receiverName: settings.receiverName,
@@ -292,4 +297,13 @@ export function markRefunded(id: string, note: string) {
 export function clearSandbox() {
   localStorage.removeItem(REQUESTS_KEY);
   localStorage.removeItem(COUNTER_KEY);
+}
+
+
+export function markEmailEventSent(id: string, event: string) {
+  return mutate(id, (row) => ({
+    ...row,
+    emailEventsSent: Array.from(new Set([...(row.emailEventsSent || []), event])),
+    history: [...row.history, history('SISTEMA', 'EMAIL_ENVIADO', event)],
+  }));
 }
