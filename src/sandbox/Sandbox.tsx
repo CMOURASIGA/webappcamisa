@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, Clipboard, Clock3, CreditCard, Settings2, ShieldCheck, Shirt, XCircle } from 'lucide-react';
 import { COLORS, SIZES } from '../data/mockData';
 import {
@@ -49,7 +49,7 @@ function dateTime(value: string) {
   return new Date(value).toLocaleString('pt-BR');
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function Badge({ children }: { children: ReactNode }) {
   return <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-black text-primary">{children}</span>;
 }
 
@@ -154,7 +154,7 @@ function RequestCard({ row, refresh }: { row: PreRequest; refresh: () => void })
         </div>
       )}
 
-      {canCancel && row.status !== 'CONFIRMADA' && (
+      {canCancel && (
         <div className="rounded-xl border border-red-100 bg-red-50 p-4">
           <div className="text-[12px] font-black text-red-800">Cancelar pré-solicitação</div>
           <input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="mt-2 w-full rounded-xl border border-red-200 bg-white p-3 text-[12px]" />
