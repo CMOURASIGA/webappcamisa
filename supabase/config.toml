@@ -1,2 +1,5 @@
 [functions.camisa-email]
 verify_jwt = false
+
+[functions.camisa-sandbox-email]
+verify_jwt = false
