@@ -318,6 +318,32 @@ export default function Sandbox() {
     row.status === 'CANCELAMENTO_SOLICITADO'
   );
 
+  const isDelivered = (row: PreRequest) =>
+    row.history.some((event) =>
+      ['ENTREGA_REALIZADA', 'PEDIDO_ENTREGUE', 'ENTREGUE'].includes(event.event)
+    );
+
+  const financeSummary = {
+    preRequests: requests.length,
+    awaitingValidation: requests.filter((row) => row.paymentStatus === 'AGUARDANDO_VALIDACAO').length,
+    confirmedOrders: requests.filter(
+      (row) => row.paymentStatus === 'CONFIRMADO' && row.status === 'CONFIRMADA'
+    ).length,
+    deliveredOrders: requests.filter(isDelivered).length,
+    exceptions: requests.filter(
+      (row) =>
+        ['NAO_LOCALIZADO', 'ESTORNO_PENDENTE'].includes(row.paymentStatus) ||
+        row.status === 'CANCELAMENTO_SOLICITADO'
+    ).length,
+  };
+
+  const financeFollowUp = requests.filter(
+    (row) =>
+      row.paymentStatus !== 'NAO_INFORMADO' ||
+      row.status === 'CONFIRMADA' ||
+      row.status === 'CANCELADA'
+  );
+
   useEffect(() => {
     const pendingExpired = requests.filter(
       (row) => row.status === 'EXPIRADA' && row.email && !row.emailEventsSent?.includes('PRE_REQUEST_EXPIRED')
@@ -473,12 +499,62 @@ export default function Sandbox() {
         )}
 
         {area === 'financeiro' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="rounded-2xl border border-border-color bg-white p-5">
-              <h2 className="m-0 text-lg font-black">Fila do Financeiro</h2>
-              <p className="mt-1 text-[12px] text-text-muted">Toda confirmação continua sendo humana.</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="m-0 text-lg font-black">Controle financeiro</h2>
+                  <p className="mt-1 text-[12px] text-text-muted">
+                    Valide somente o recebimento do PIX. O acompanhamento de entrega abaixo é informativo e não libera ações operacionais.
+                  </p>
+                </div>
+                <div className="rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-primary">
+                  Visão do Financeiro
+                </div>
+              </div>
             </div>
-            {!financialQueue.length && <div className="rounded-2xl border border-border-color bg-white p-8 text-center text-[12px] text-text-muted">Nenhuma pendência financeira.</div>}
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="rounded-2xl border border-border-color bg-white p-4">
+                <div className="text-[10px] font-black uppercase tracking-wide text-text-muted">Pré-solicitações</div>
+                <div className="mt-2 text-3xl font-black text-primary">{financeSummary.preRequests}</div>
+                <div className="mt-1 text-[10px] text-text-muted">Total recebido no fluxo</div>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-white p-4">
+                <div className="text-[10px] font-black uppercase tracking-wide text-amber-700">Aguardando validação</div>
+                <div className="mt-2 text-3xl font-black text-amber-700">{financeSummary.awaitingValidation}</div>
+                <div className="mt-1 text-[10px] text-text-muted">PIX informado para conferência</div>
+              </div>
+              <div className="rounded-2xl border border-success/30 bg-white p-4">
+                <div className="text-[10px] font-black uppercase tracking-wide text-success">Pedidos confirmados</div>
+                <div className="mt-2 text-3xl font-black text-success">{financeSummary.confirmedOrders}</div>
+                <div className="mt-1 text-[10px] text-text-muted">Viraram pedido oficial</div>
+              </div>
+              <div className="rounded-2xl border border-border-color bg-white p-4">
+                <div className="text-[10px] font-black uppercase tracking-wide text-text-muted">Entregues</div>
+                <div className="mt-2 text-3xl font-black text-primary">{financeSummary.deliveredOrders}</div>
+                <div className="mt-1 text-[10px] text-text-muted">Status operacional de entrega</div>
+              </div>
+              <div className="rounded-2xl border border-red-100 bg-white p-4">
+                <div className="text-[10px] font-black uppercase tracking-wide text-red-700">Pendências</div>
+                <div className="mt-2 text-3xl font-black text-red-700">{financeSummary.exceptions}</div>
+                <div className="mt-1 text-[10px] text-text-muted">Não localizado, cancelamento ou estorno</div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border-color bg-white p-5">
+              <h2 className="m-0 text-lg font-black">Fila para conferência</h2>
+              <p className="mt-1 text-[12px] text-text-muted">
+                Aqui ficam somente registros que exigem uma decisão do Financeiro.
+              </p>
+            </div>
+
+            {!financialQueue.length && (
+              <div className="rounded-2xl border border-border-color bg-white p-8 text-center text-[12px] text-text-muted">
+                Nenhuma pendência financeira.
+              </div>
+            )}
+
             {financialQueue.map((row) => (
               <div key={row.id} className="rounded-2xl border border-border-color bg-white p-5">
                 <div className="flex flex-wrap justify-between gap-3">
@@ -510,6 +586,59 @@ export default function Sandbox() {
                 </div>
               </div>
             ))}
+
+            <div className="rounded-2xl border border-border-color bg-white p-5">
+              <h2 className="m-0 text-lg font-black">Acompanhamento</h2>
+              <p className="mt-1 text-[12px] text-text-muted">
+                Minicontrole dos registros que passaram pelo Financeiro. A entrega é somente leitura para este perfil.
+              </p>
+
+              {!financeFollowUp.length ? (
+                <div className="mt-4 rounded-xl bg-[#F7F9FB] p-5 text-center text-[12px] text-text-muted">
+                  Ainda não há registros para acompanhamento.
+                </div>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[760px] border-collapse text-left text-[11px]">
+                    <thead>
+                      <tr className="border-b border-border-color text-text-muted">
+                        <th className="px-2 py-3">Protocolo</th>
+                        <th className="px-2 py-3">Solicitante</th>
+                        <th className="px-2 py-3">Financeiro</th>
+                        <th className="px-2 py-3">Pedido oficial</th>
+                        <th className="px-2 py-3">Entrega</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {financeFollowUp.map((row) => {
+                        const delivered = isDelivered(row);
+                        const deliveryText = delivered
+                          ? 'Entregue'
+                          : row.paymentStatus === 'CONFIRMADO'
+                            ? 'Aguardando operação/entrega'
+                            : 'Ainda não é pedido';
+                        return (
+                          <tr key={row.id} className="border-b border-border-color/70">
+                            <td className="px-2 py-3 font-black text-primary">{row.protocol}</td>
+                            <td className="px-2 py-3">
+                              <div className="font-bold">{row.requesterName}</div>
+                              <div className="text-text-muted">{row.beneficiaryName}</div>
+                            </td>
+                            <td className="px-2 py-3">{paymentLabel[row.paymentStatus] || row.paymentStatus}</td>
+                            <td className="px-2 py-3">{row.officialCode || '—'}</td>
+                            <td className="px-2 py-3 font-bold">{deliveryText}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[11px] leading-5 text-amber-900">
+              No sandbox atual, o Financeiro já consegue validar o funil financeiro. O indicador de entrega será alimentado pelo status operacional quando esta visão for integrada ao Supabase; o Financeiro não terá permissão para marcar uma camisa como entregue.
+            </div>
           </div>
         )}
 
